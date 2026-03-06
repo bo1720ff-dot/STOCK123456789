@@ -8,6 +8,7 @@ export const ActivityFeed: React.FC = () => {
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'ALL' | 'ORDER' | 'STOCK' | 'SYSTEM'>('ALL');
+  const [selectedDate, setSelectedDate] = useState<string>('');
   
   // State for Detail View Modal
   const [selectedLog, setSelectedLog] = useState<ActivityLog | null>(null);
@@ -15,7 +16,12 @@ export const ActivityFeed: React.FC = () => {
   const loadLogs = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-        const data = await auditService.getRecentLogs(100);
+        let data;
+        if (selectedDate) {
+            data = await auditService.getLogsByDate(selectedDate);
+        } else {
+            data = await auditService.getRecentLogs(100);
+        }
         setLogs(data);
     } catch (e) {
         console.error(e);
@@ -28,7 +34,7 @@ export const ActivityFeed: React.FC = () => {
     loadLogs();
     const interval = setInterval(() => loadLogs(true), 15000); // Poll every 15s
     return () => clearInterval(interval);
-  }, []);
+  }, [selectedDate]);
 
   const getIcon = (type: string, description: string) => {
       if (type === 'ORDER') {
@@ -115,11 +121,31 @@ export const ActivityFeed: React.FC = () => {
           );
       }
 
+      // 3. Production Input
+      if (log.description.includes('Production Input:')) {
+         return (
+             <div>
+                 <span className="text-amber-600 text-[10px] font-black uppercase tracking-wide">Production Entry</span>
+                 <div className="font-bold text-slate-800 text-sm mt-0.5">
+                     {log.description.replace('Production Input: ', '')}
+                 </div>
+             </div>
+         );
+      }
+
       // Default
       return <span className="font-bold text-slate-700 text-sm">{log.description}</span>;
   };
 
-  const filteredLogs = logs.filter(l => filter === 'ALL' || l.entity_type === filter);
+  const filteredLogs = logs.filter(l => {
+      // 1. Apply Type Filter
+      if (filter !== 'ALL' && l.entity_type !== filter) return false;
+
+      // 2. EXCLUDE "Added item" logs (User Request)
+      if (l.description.includes('Added item:')) return false;
+
+      return true;
+  });
 
   // Group logs by date
   const groupedLogs: Record<string, ActivityLog[]> = {};
@@ -140,24 +166,47 @@ export const ActivityFeed: React.FC = () => {
                     </h3>
                     <p className="text-[10px] text-slate-400 font-bold mt-0.5 uppercase tracking-wide">System Audit Trail & Live Updates</p>
                 </div>
-                <button onClick={() => loadLogs()} className="p-2 hover:bg-white rounded-full text-slate-400 transition shadow-sm border border-transparent hover:border-slate-200">
-                    <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-                </button>
+                <div className="flex items-center gap-2">
+                    {/* Date Picker */}
+                    <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-sm">
+                        <Calendar size={14} className="text-slate-400" />
+                        <input 
+                            type="date" 
+                            value={selectedDate} 
+                            onChange={(e) => setSelectedDate(e.target.value)}
+                            className="text-xs font-bold text-slate-600 outline-none bg-transparent w-24"
+                        />
+                        {selectedDate && (
+                            <button onClick={() => setSelectedDate('')} className="text-slate-400 hover:text-red-500">
+                                <X size={14} />
+                            </button>
+                        )}
+                    </div>
+
+                    <button onClick={() => loadLogs()} className="p-2 hover:bg-white rounded-full text-slate-400 transition shadow-sm border border-transparent hover:border-slate-200">
+                        <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+                    </button>
+                </div>
             </div>
             
             {/* Filter Pills */}
             <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-                {(['ALL', 'ORDER', 'STOCK', 'SYSTEM'] as const).map((f) => (
+                {[
+                    { label: 'ALL', val: 'ALL' },
+                    { label: 'ORDER', val: 'ORDER' },
+                    { label: 'PRODUCTION', val: 'STOCK' },
+                    { label: 'SYSTEM', val: 'SYSTEM' }
+                ].map((f) => (
                     <button
-                        key={f}
-                        onClick={() => setFilter(f)}
+                        key={f.label}
+                        onClick={() => setFilter(f.val as any)}
                         className={`px-3 py-1 rounded-full text-[10px] font-bold border transition ${
-                            filter === f 
+                            filter === f.val 
                             ? 'bg-sky-600 text-white border-sky-600 shadow-sm' 
                             : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'
                         }`}
                     >
-                        {f}
+                        {f.label}
                     </button>
                 ))}
             </div>

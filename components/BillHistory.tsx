@@ -1,12 +1,14 @@
 
 import React, { useState, useEffect } from 'react';
-import { billService } from '../services/supabase';
-import { Bill, BillItem, BillType } from '../types';
-import { Printer, FileText, Download, Calendar, FileDown, Eye, X, Package, Truck, User, Phone, IndianRupee, MapPin, Search, Edit2, CreditCard } from 'lucide-react';
+import { billService, vehicleService } from '../services/supabase';
+import { Bill, BillItem, BillType, UserRole, Vehicle } from '../types';
+import type { User } from '../types';
+import { Printer, FileText, Download, Calendar, FileDown, Eye, X, Package, Truck, User as UserIcon, Phone, IndianRupee, MapPin, Search, Edit2, CreditCard } from 'lucide-react';
 
 interface BillHistoryProps {
   onReprint: (bill: Bill, items: BillItem[]) => void;
   forcedFilter?: BillType | 'ALL';
+  user?: User;
 }
 
 // Skeleton Row Component
@@ -26,10 +28,11 @@ const SkeletonRow = () => (
   </tr>
 );
 
-export const BillHistory: React.FC<BillHistoryProps> = ({ onReprint, forcedFilter = 'ALL' }) => {
+export const BillHistory: React.FC<BillHistoryProps> = ({ onReprint, forcedFilter = 'ALL', user }) => {
   const [bills, setBills] = useState<Bill[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterType, setFilterType] = useState<string>(forcedFilter);
+  const [driverVehicle, setDriverVehicle] = useState<Vehicle | null>(null);
   
   // Details Modal State
   const [viewBill, setViewBill] = useState<Bill | null>(null);
@@ -44,6 +47,23 @@ export const BillHistory: React.FC<BillHistoryProps> = ({ onReprint, forcedFilte
   useEffect(() => {
     setFilterType(forcedFilter);
   }, [forcedFilter]);
+
+  // Load Driver's Vehicle on Mount
+  useEffect(() => {
+      if (user?.role === UserRole.DRIVER) {
+          vehicleService.getAll().then(vehicles => {
+              // Find vehicle where driver_name matches user.name (case-insensitive)
+              let myVehicle = vehicles.find(v => (v.driver_name || '').toLowerCase() === (user.name || '').toLowerCase());
+              
+              // Fallback: Check if user.username matches vehicle_number (since we set username = vehicle_number in login)
+              if (!myVehicle && user.username) {
+                  myVehicle = vehicles.find(v => (v.vehicle_number || '').replace(/\s/g,'').toLowerCase() === (user.username || '').replace(/\s/g,'').toLowerCase());
+              }
+
+              if (myVehicle) setDriverVehicle(myVehicle);
+          });
+      }
+  }, [user]);
 
   useEffect(() => {
     loadBills();
@@ -162,19 +182,32 @@ export const BillHistory: React.FC<BillHistoryProps> = ({ onReprint, forcedFilte
     if (startDate && b.bill_date < startDate) return false;
     if (endDate && b.bill_date > endDate) return false;
     
-    // Updated Search Logic: Matches Party Name OR Bill No OR Vehicle No
+    // Updated Search Logic: Matches Party Name OR Bill No
     if (searchTerm) {
         const term = searchTerm.toLowerCase();
         const matchesName = (b.customer_name || '').toLowerCase().includes(term);
         const matchesBillNo = (b.bill_no || '').toLowerCase().includes(term);
-        const matchesVehicle = (b.vehicle_number || '').toLowerCase().includes(term);
-        if (!matchesName && !matchesBillNo && !matchesVehicle) return false;
+        if (!matchesName && !matchesBillNo) return false;
+    }
+
+    // --- NEW DRIVER FILTER ---
+    if (user?.role === UserRole.DRIVER) {
+        const nameMatch = (b.driver_name || '').toLowerCase() === (user.name || '').toLowerCase();
+        
+        // Match against assigned vehicle object
+        const vehicleMatch = driverVehicle && (b.vehicle_number || '').replace(/\s/g,'').toLowerCase() === (driverVehicle.vehicle_number || '').replace(/\s/g,'').toLowerCase();
+        
+        // Fallback: Match against username (often used as vehicle number)
+        const usernameMatch = (b.vehicle_number || '').replace(/\s/g,'').toLowerCase() === (user.username || '').replace(/\s/g,'').toLowerCase();
+
+        if (!nameMatch && !vehicleMatch && !usernameMatch) return false;
     }
     
     return true;
   });
 
   const getTitle = () => {
+    if (user?.role === UserRole.DRIVER) return "My Delivery History";
     if (forcedFilter === BillType.DISPATCH) return "Dispatch List";
     if (forcedFilter === BillType.SMALL) return "Small Bill List";
     return "All Print Logs";
@@ -295,7 +328,7 @@ export const BillHistory: React.FC<BillHistoryProps> = ({ onReprint, forcedFilte
           <div className="relative w-full md:w-48">
               <input 
                 type="text" 
-                placeholder="Search Party, Bill, or Vehicle..." 
+                placeholder="Search Party or Bill No..." 
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
                 className="pl-8 pr-2 py-1.5 border border-gray-200 rounded text-sm focus:border-sky-400 outline-none w-full font-bold text-gray-700"
@@ -476,7 +509,7 @@ export const BillHistory: React.FC<BillHistoryProps> = ({ onReprint, forcedFilte
                       <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm relative overflow-hidden">
                            <div className="absolute top-0 left-0 w-1 h-full bg-sky-500"></div>
                            <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-3 flex items-center gap-1">
-                               <User size={12}/> Customer Information
+                               <UserIcon size={12}/> Customer Information
                            </h4>
                            <p className="font-bold text-gray-800 text-lg">{viewBill.customer_name}</p>
                            <p className="text-sm text-gray-500 mt-1 flex items-center gap-2">

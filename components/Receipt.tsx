@@ -201,12 +201,14 @@ export const Receipt = forwardRef<HTMLDivElement, ReceiptProps>(({ bill, items, 
           {/* Items */}
           <div className="mb-1">
             {items.map((item, idx) => (
-              <div key={idx} className="flex text-[10px] mb-1 font-bold text-black">
-                <div className="flex-1 truncate pr-1">{item.product_name}</div>
-                <div className="w-6 text-right">{item.qty}</div>
-                {/* Hide Rate/Total for Dispatch/Order UNLESS they exist */}
-                {showPrices && <div className="w-8 text-right">{item.rate || '-'}</div>}
-                {showPrices && <div className="w-10 text-right">{item.line_total?.toFixed(2) || '-'}</div>}
+              <div key={idx} className="flex flex-col text-[10px] mb-1 font-bold text-black border-b border-dotted border-black pb-1 last:border-0">
+                <div className="flex justify-between">
+                    <div className="flex-1 truncate pr-1">{item.product_name}</div>
+                    <div className="w-6 text-right">{item.qty}</div>
+                    {/* Hide Rate/Total for Dispatch/Order UNLESS they exist */}
+                    {showPrices && <div className="w-8 text-right">{item.rate || '-'}</div>}
+                    {showPrices && <div className="w-10 text-right">{item.line_total?.toFixed(2) || '-'}</div>}
+                </div>
               </div>
             ))}
           </div>

@@ -25,8 +25,7 @@ import { BackupManager } from './components/BackupManager';
 import { DatabaseEditor } from './components/DatabaseEditor'; 
 import { DispatchTickets } from './components/DispatchTickets'; // NEW IMPORT
 import { DriverProfile } from './components/DriverProfile'; // NEW IMPORT
-import { DeliveryStatement } from './components/DeliveryStatement'; // NEW IMPORT
-import { LayoutDashboard, PlusCircle, History, Package, Users, ScrollText, FileText, Truck, MapPin, Calculator, LogOut, ShoppingBag, List, ArrowLeft, Shield, ClipboardList, ScanLine, Layers, Activity, CheckCircle, ArrowLeftRight, Bell, X, Search, Lock, Clipboard, Database, Scale, Grid, Menu, Megaphone, AlertOctagon, RefreshCw, PenTool, Ticket, User as UserIcon, FileBarChart } from 'lucide-react';
+import { LayoutDashboard, PlusCircle, History, Package, Users, ScrollText, FileText, Truck, MapPin, Calculator, LogOut, ShoppingBag, List, ArrowLeft, Shield, ClipboardList, ScanLine, Layers, Activity, CheckCircle, ArrowLeftRight, Bell, X, Search, Lock, Clipboard, Database, Scale, Grid, Menu, Megaphone, AlertOctagon, RefreshCw, PenTool, Ticket, User as UserIcon } from 'lucide-react';
 import { Bill, BillItem, BillType, User, UserRole, Product } from './types';
 import { billService, productService, settingsService, systemService } from './services/supabase';
 
@@ -55,8 +54,7 @@ enum Screen {
   BACKUP = 'BACKUP',
   DB_EDITOR = 'DB_EDITOR',
   DISPATCH_TICKETS = 'DISPATCH_TICKETS',
-  DRIVER_PROFILE = 'DRIVER_PROFILE',
-  DELIVERY_STATEMENT = 'DELIVERY_STATEMENT', // NEW SCREEN ENUM
+  DRIVER_PROFILE = 'DRIVER_PROFILE', // NEW SCREEN ENUM
 }
 
 const App: React.FC = () => {
@@ -352,11 +350,11 @@ const App: React.FC = () => {
       case Screen.TRANSACTION_LOG:
         return <TransactionLog />;
       case Screen.DISPATCH_LIST:
-        return <BillHistory onReprint={handleReprint} forcedFilter={BillType.DISPATCH} />;
+        return <BillHistory onReprint={handleReprint} forcedFilter={BillType.DISPATCH} user={currentUser} />;
       case Screen.SMALL_BILL_LIST:
-        return <BillHistory onReprint={handleReprint} forcedFilter={BillType.SMALL} />;
+        return <BillHistory onReprint={handleReprint} forcedFilter={BillType.SMALL} user={currentUser} />;
       case Screen.ALL_LOGS:
-        return <BillHistory onReprint={handleReprint} forcedFilter='ALL' />;
+        return <BillHistory onReprint={handleReprint} forcedFilter='ALL' user={currentUser} />;
       case Screen.INVOICE_LOOKUP:
         return <InvoiceLookup user={currentUser} />;
       case Screen.BACKUP:
@@ -367,8 +365,6 @@ const App: React.FC = () => {
         return <DispatchTickets onPrint={handleReprint} user={currentUser} />;
       case Screen.DRIVER_PROFILE:
         return <DriverProfile user={currentUser} onLogout={requestLogout} />;
-      case Screen.DELIVERY_STATEMENT: // NEW CASE
-        return <DeliveryStatement onBack={() => handleNavigation(Screen.DASHBOARD)} />;
       case Screen.SALES_ORDER:
         const backAction = (currentUser.role === UserRole.SALESMAN || currentUser.role === UserRole.EMPLOYEE) 
             ? () => handleNavigation(Screen.MY_ORDERS) 
@@ -486,7 +482,6 @@ const App: React.FC = () => {
         items: [
             { screen: Screen.MY_ORDERS, icon: List, label: "Order List", dot: notificationDots.orders },
             { screen: Screen.DISPATCH_LIST, icon: ScrollText, label: "Dispatch List", dot: notificationDots.dispatch },
-            { screen: Screen.DELIVERY_STATEMENT, icon: FileBarChart, label: "Delivery Statement" }, // NEW MENU ITEM
             { screen: Screen.SMALL_BILL_LIST, icon: FileText, label: "Small Bill List" },
             { screen: Screen.STOCK_LOGS, icon: ClipboardList, label: "Stock Input Logs" },
             { screen: Screen.STOCK_IN_OUT, icon: ArrowLeftRight, label: "Stock In/Out Status" },
