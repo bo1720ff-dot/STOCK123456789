@@ -2,9 +2,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { BillType, Product, BillItem, OrderStatus, User, Vehicle, UserRole } from '../types';
 import { productService, billService, vehicleService, userService } from '../services/supabase';
-import { Send, User as UserIcon, MapPin, Phone, FileText, ChevronDown, Package, Plus, Trash2, ArrowLeft, ArrowRight, Calendar, ShoppingCart, CheckCircle, IndianRupee, Scale, X, Search, Minus, AlertTriangle, Truck, Users, Sparkles } from 'lucide-react';
+import { Send, User as UserIcon, MapPin, Phone, FileText, ChevronDown, Package, Plus, Trash2, ArrowLeft, ArrowRight, Calendar, ShoppingCart, CheckCircle, IndianRupee, Scale, X, Search, Minus, AlertTriangle, Truck, Users } from 'lucide-react';
 import { SearchableDropdown, DropdownOption } from './SearchableDropdown';
-import { GoogleGenAI, Type } from "@google/genai";
 
 interface SalesOrderFormProps {
   user: User;
@@ -19,11 +18,6 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({ user, onOrderSav
   const [products, setProducts] = useState<Product[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]); 
   const [salesmen, setSalesmen] = useState<User[]>([]); // NEW: Salesmen List
-
-  // AI Smart Paste State
-  const [showSmartPaste, setShowSmartPaste] = useState(false);
-  const [pasteText, setPasteText] = useState('');
-  const [isProcessingPaste, setIsProcessingPaste] = useState(false);
 
   // STEP 1: Customer Data
   const [selectedPartyName, setSelectedPartyName] = useState('');
@@ -219,7 +213,11 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({ user, onOrderSav
               alert("Please enter Customer Name.");
               return;
           }
-          // Admin can now proceed without selecting a salesman (defaults to self)
+          // Validate Salesman Selection for Admin
+          if (user.role === UserRole.ADMIN && !selectedSalesman) {
+              alert("Please select a Salesman.");
+              return;
+          }
           setStep(2);
       } else if (step === 2) {
           if (cartItems.length === 0) {
@@ -240,164 +238,6 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({ user, onOrderSav
 
   const handleBack = () => {
       if (step > 1) setStep((s) => (s - 1) as any);
-  };
-
-  // AI Smart Paste Handler
-  const handleSmartPaste = async () => {
-    if (!pasteText.trim()) return;
-    setIsProcessingPaste(true);
-    try {
-        // Robust API Key Retrieval for Vite/Netlify
-        let apiKey = '';
-        try {
-            // @ts-ignore
-            if (import.meta.env && import.meta.env.VITE_GEMINI_API_KEY) {
-                // @ts-ignore
-                apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-            }
-        } catch (e) {}
-
-        if (!apiKey) {
-            try {
-                if (process.env.GEMINI_API_KEY) apiKey = process.env.GEMINI_API_KEY;
-            } catch (e) {}
-        }
-
-        if (!apiKey) {
-            alert("Gemini API Key is missing. Please set VITE_GEMINI_API_KEY in your environment.");
-            setIsProcessingPaste(false);
-            return;
-        }
-
-        const ai = new GoogleGenAI({ apiKey });
-        
-        // Create a simplified list of products for context
-        const productContext = products.map(p => p.product_name).join(', ');
-
-        const response = await ai.models.generateContent({
-            model: "gemini-3-flash-preview",
-            contents: `
-                You are an order processing assistant.
-                Extract customer details (name, address, phone) and product items (name, quantity, rate) from the user's text.
-                
-                Available Product List (use these names if possible):
-                ${productContext}
-                
-                User Text:
-                "${pasteText}"
-                
-                Instructions:
-                1. Identify customer name, address, and phone number if present.
-                2. Identify product names, quantities, and rates.
-                3. Map extracted product names to the "Available Product List" where possible.
-                4. If a rate is not mentioned, return 0.
-                5. Return a JSON object with "customer" and "items" keys.
-            `,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        customer: {
-                            type: Type.OBJECT,
-                            properties: {
-                                name: { type: Type.STRING },
-                                address: { type: Type.STRING },
-                                phone: { type: Type.STRING }
-                            }
-                        },
-                        items: {
-                            type: Type.ARRAY,
-                            items: {
-                                type: Type.OBJECT,
-                                properties: {
-                                    product_name: { type: Type.STRING },
-                                    qty: { type: Type.NUMBER },
-                                    rate: { type: Type.NUMBER }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        });
-
-        const text = response.text;
-        if (!text) throw new Error("No response from AI");
-        
-        const data = JSON.parse(text);
-        const extractedItems = data.items || [];
-        const extractedCustomer = data.customer || {};
-
-        let matchCount = 0;
-
-        // 1. Fill Customer Details
-        if (extractedCustomer.name) setSelectedPartyName(extractedCustomer.name);
-        if (extractedCustomer.address) setSelectedAddress(extractedCustomer.address);
-        if (extractedCustomer.phone) setPhoneNumber(extractedCustomer.phone);
-
-        // 2. Fill Cart Items
-        if (Array.isArray(extractedItems)) {
-            const newItems: BillItem[] = [];
-
-            extractedItems.forEach((item: any) => {
-                // 1. Try Exact Match
-                let product = products.find(p => p.product_name.toLowerCase() === item.product_name.toLowerCase());
-                
-                // 2. Try Fuzzy Match (Includes)
-                if (!product) {
-                     product = products.find(p => p.product_name.toLowerCase().includes(item.product_name.toLowerCase()) || item.product_name.toLowerCase().includes(p.product_name.toLowerCase()));
-                }
-
-                if (product) {
-                    const quantity = Number(item.qty) || 1;
-                    const rate = Number(item.rate) || product.rate;
-                    
-                    newItems.push({
-                        product_name: product.product_name,
-                        qty: quantity,
-                        rate: rate,
-                        line_total: quantity * rate
-                    });
-                    matchCount++;
-                }
-            });
-
-            if (newItems.length > 0) {
-                // Merge with existing cart
-                setCartItems(prev => {
-                    const updated = [...prev];
-                    newItems.forEach(newItem => {
-                        const idx = updated.findIndex(i => i.product_name === newItem.product_name);
-                        if (idx !== -1) {
-                            updated[idx] = { 
-                                ...updated[idx], 
-                                qty: updated[idx].qty + newItem.qty,
-                                line_total: (updated[idx].qty + newItem.qty) * (newItem.rate || updated[idx].rate || 0)
-                            };
-                        } else {
-                            updated.push(newItem);
-                        }
-                    });
-                    return updated;
-                });
-            }
-        }
-        
-        setShowSmartPaste(false);
-        setPasteText('');
-        
-        if (onNotification) {
-            const customerMsg = extractedCustomer.name ? 'Customer details & ' : '';
-            onNotification(`AI matched ${customerMsg}${matchCount} items!`, 'success');
-        }
-
-    } catch (e) {
-        console.error("Smart Paste Error:", e);
-        alert("Failed to process text. Please try again.");
-    } finally {
-        setIsProcessingPaste(false);
-    }
   };
 
   // Trigger Confirmation Modal
@@ -522,17 +362,9 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({ user, onOrderSav
          {step === 1 && (
              <div className="p-4 space-y-4 animate-in slide-in-from-right-8 duration-300">
                  <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
-                    <div className="flex justify-between items-center mb-4">
-                        <h3 className="text-xs font-black text-slate-800 uppercase flex items-center gap-2">
-                            <UserIcon size={16} className="text-sky-500"/> Customer Details
-                        </h3>
-                        <button 
-                            onClick={() => setShowSmartPaste(true)}
-                            className="bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg text-[10px] font-bold flex items-center gap-1 hover:bg-indigo-100 transition border border-indigo-100"
-                        >
-                            <Sparkles size={12} /> AI PASTE
-                        </button>
-                    </div>
+                    <h3 className="text-xs font-black text-slate-800 uppercase mb-4 flex items-center gap-2">
+                        <UserIcon size={16} className="text-sky-500"/> Customer Details
+                    </h3>
                     
                     <div className="space-y-3">
                         {/* ADMIN ONLY: Salesman Selection */}
@@ -634,29 +466,20 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({ user, onOrderSav
                  
                  {/* 1. Search Bar (Sticky) */}
                  <div className="bg-white px-3 py-2 sticky top-0 z-10 border-b border-gray-100 shadow-sm">
-                     <div className="flex gap-2 relative">
-                        <div className="relative flex-1">
-                            <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
-                            <input 
-                                type="text" 
-                                placeholder="Search Items..." 
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                className="w-full pl-9 pr-8 py-2 bg-gray-100 border-none rounded-lg text-sm font-bold text-gray-800 outline-none focus:ring-2 focus:ring-sky-200 focus:bg-white transition"
-                            />
-                            {searchQuery && (
-                                <button onClick={() => setSearchQuery('')} className="absolute right-3 top-2.5 text-gray-400">
-                                    <X size={14} />
-                                </button>
-                            )}
-                        </div>
-                        <button 
-                            onClick={() => setShowSmartPaste(true)}
-                            className="bg-indigo-600 text-white px-3 rounded-lg flex items-center justify-center shadow-sm active:scale-95 transition hover:bg-indigo-700"
-                            title="AI Smart Paste"
-                        >
-                            <Sparkles size={18} />
-                        </button>
+                     <div className="relative">
+                         <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
+                         <input 
+                            type="text" 
+                            placeholder="Search Items..." 
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="w-full pl-9 pr-8 py-2 bg-gray-100 border-none rounded-lg text-sm font-bold text-gray-800 outline-none focus:ring-2 focus:ring-sky-200 focus:bg-white transition"
+                         />
+                         {searchQuery && (
+                             <button onClick={() => setSearchQuery('')} className="absolute right-3 top-2.5 text-gray-400">
+                                 <X size={14} />
+                             </button>
+                         )}
                      </div>
                      
                      {/* 2. Category Chips */}
@@ -865,56 +688,6 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({ user, onOrderSav
                         className="flex-1 py-3 bg-sky-600 text-white font-bold rounded-xl hover:bg-sky-700 shadow-lg shadow-sky-200 transition"
                       >
                           Yes, Confirm
-                      </button>
-                  </div>
-              </div>
-          </div>
-      )}
-
-      {/* --- SMART PASTE MODAL --- */}
-      {showSmartPaste && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200">
-              <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md">
-                  <div className="flex justify-between items-center mb-4">
-                      <h3 className="text-lg font-black text-slate-800 flex items-center gap-2">
-                          <Sparkles className="text-indigo-500" size={20} /> AI Smart Paste
-                      </h3>
-                      <button onClick={() => setShowSmartPaste(false)} className="text-slate-400 hover:text-slate-600">
-                          <X size={20} />
-                      </button>
-                  </div>
-                  
-                  <p className="text-xs text-slate-500 mb-3">
-                      Paste your order text below (e.g. "5 Water, 10 Mango 200ml"). AI will detect items automatically.
-                  </p>
-
-                  <textarea
-                      value={pasteText}
-                      onChange={(e) => setPasteText(e.target.value)}
-                      className="w-full h-32 p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition resize-none"
-                      placeholder="Paste order details here..."
-                      autoFocus
-                  />
-
-                  <div className="mt-4 flex gap-3">
-                      <button 
-                          onClick={() => setShowSmartPaste(false)}
-                          className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition"
-                      >
-                          Cancel
-                      </button>
-                      <button 
-                          onClick={handleSmartPaste}
-                          disabled={isProcessingPaste || !pasteText.trim()}
-                          className="flex-1 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition flex justify-center items-center gap-2 disabled:opacity-50"
-                      >
-                          {isProcessingPaste ? (
-                              <>Processing...</>
-                          ) : (
-                              <>
-                                  <Sparkles size={18} /> Detect & Add
-                              </>
-                          )}
                       </button>
                   </div>
               </div>

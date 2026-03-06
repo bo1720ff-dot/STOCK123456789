@@ -2,15 +2,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { BillType, Product, BillItem, Party, SavedAddress, Vehicle } from '../types';
 import { productService, billService, partyService, addressService, vehicleService } from '../services/supabase';
-import { Plus, Trash2, Printer, ShoppingCart, User, MapPin, Truck, QrCode, Check, Save, RefreshCw, Scale, Edit2, Lock, Mic } from 'lucide-react';
+import { Plus, Trash2, Printer, ShoppingCart, User, MapPin, Truck, QrCode, Check, Save, RefreshCw, Scale, Edit2, Lock } from 'lucide-react';
 import { SearchableDropdown, DropdownOption } from './SearchableDropdown';
-
-// Add Speech Recognition Types
-declare global {
-  interface Window {
-    webkitSpeechRecognition: any;
-  }
-}
 
 interface CreateBillProps {
   onBillSaved: (bill: any, items: any[], shouldPrint: boolean) => void;
@@ -380,60 +373,6 @@ export const CreateBill: React.FC<CreateBillProps> = ({ onBillSaved, onNotificat
     setTimeout(() => qtyRef.current?.focus(), 50);
   };
 
-  // Voice Search Handler
-  const [isListening, setIsListening] = useState(false);
-
-  const startVoiceSearch = () => {
-    if (!('webkitSpeechRecognition' in window)) {
-      alert("Voice input is not supported in this browser.");
-      return;
-    }
-
-    const recognition = new window.webkitSpeechRecognition();
-    recognition.lang = 'en-IN'; // Default to Indian English
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-
-    recognition.onstart = () => setIsListening(true);
-    recognition.onend = () => setIsListening(false);
-
-    recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript.toLowerCase();
-      console.log("Voice Input:", transcript);
-
-      // Fuzzy matching logic
-      // 1. Exact match
-      let match = products.find(p => p.product_name.toLowerCase() === transcript);
-      
-      // 2. Starts with
-      if (!match) {
-          match = products.find(p => p.product_name.toLowerCase().startsWith(transcript));
-      }
-
-      // 3. Includes
-      if (!match) {
-          match = products.find(p => p.product_name.toLowerCase().includes(transcript));
-      }
-
-      if (match) {
-          const option = productOptions.find(o => o.id === match.id);
-          if (option) {
-              handleProductSelect(option);
-              if (onNotification) onNotification(`Voice Selected: ${match.product_name}`, 'success');
-          }
-      } else {
-          alert(`No product found matching "${transcript}"`);
-      }
-    };
-
-    recognition.onerror = (event: any) => {
-      console.error("Speech recognition error", event.error);
-      setIsListening(false);
-    };
-
-    recognition.start();
-  };
-
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pb-20 md:pb-0 h-full">
       
@@ -605,28 +544,19 @@ export const CreateBill: React.FC<CreateBillProps> = ({ onBillSaved, onNotificat
              <h3 className="font-bold text-gray-700">Add Items</h3>
           </div>
           
-          <div className="flex items-end gap-2">
-            <div className="flex-1">
-                <SearchableDropdown 
-                    ref={productRef}
-                    label="Product"
-                    placeholder="Search Product..."
-                    options={productOptions}
-                    value={selectedProductName}
-                    onChange={(val) => {
-                        setSelectedProductName(val);
-                        setSelectedProductId(''); // Reset ID if user types freely
-                    }}
-                    onSelect={handleProductSelect}
-                />
-            </div>
-            <button
-                onClick={startVoiceSearch}
-                className={`p-3 rounded-lg border transition flex items-center justify-center h-[46px] w-[46px] shadow-sm ${isListening ? 'bg-red-100 text-red-600 border-red-200 animate-pulse ring-2 ring-red-200' : 'bg-sky-50 text-sky-600 border-sky-200 hover:bg-sky-100 hover:border-sky-300'}`}
-                title="Voice Search Product"
-            >
-                <Mic size={20} />
-            </button>
+          <div>
+            <SearchableDropdown 
+                ref={productRef}
+                label="Product"
+                placeholder="Search Product..."
+                options={productOptions}
+                value={selectedProductName}
+                onChange={(val) => {
+                    setSelectedProductName(val);
+                    setSelectedProductId(''); // Reset ID if user types freely
+                }}
+                onSelect={handleProductSelect}
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-4">
