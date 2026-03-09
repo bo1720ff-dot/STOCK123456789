@@ -158,6 +158,15 @@ export interface ActivityLog {
   created_at: string;
 }
 
+export interface AppNotification {
+  id: string;
+  recipient_id: string;
+  sender_id?: string;
+  message: string;
+  is_read: boolean;
+  created_at: string;
+}
+
 // === NEW PRODUCTION MODULE TYPES ===
 
 export type ProdShift = 'DAY' | 'NIGHT' | 'EXTRA';

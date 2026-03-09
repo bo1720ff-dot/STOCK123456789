@@ -6,7 +6,7 @@ import {
   User, UserRole, Party, SavedAddress, Vehicle, Customer, 
   ProductionLog, SalesDashboardStats, DailyReportEntry, ActivityLog,
   ProdDashboardRow, ProdShift, ProdShiftProduction, ProdStockOut,
-  BillType
+  BillType, AppNotification
 } from '../types';
 
 /* 
@@ -519,23 +519,6 @@ export const billService = {
       if (error) throw error;
       return data || [];
   },
-  getAllPendingBills: async (): Promise<Bill[]> => {
-      if (isMock || !supabase) return Promise.resolve(mockBills.filter(b => b.status !== 'DELIVERED' && b.status !== 'CANCELLED'));
-      const { data, error } = await supabase.from('bills')
-        .select('*')
-        .neq('status', 'DELIVERED')
-        .neq('status', 'CANCELLED')
-        .order('created_at', { ascending: false });
-      
-      if (error) throw error;
-      if (!data || data.length === 0) return [];
-
-      const billIds = data.map((b: any) => b.id);
-      const { data: items, error: itemError } = await supabase.from('bill_items').select('*').in('bill_id', billIds);
-      if (itemError) throw itemError;
-
-      return data.map((b: any) => ({ ...b, items: items?.filter((i: any) => i.bill_id === b.id) || [] }));
-  },
   getOrdersByDateRange: async (startDate: string, endDate: string): Promise<Bill[]> => {
       if (isMock || !supabase) return Promise.resolve([]);
       const { data, error } = await supabase.from('bills')
@@ -572,6 +555,27 @@ export const billService = {
     const billIds = validBills.map(b => b.id);
     const { data: items, error: itemError } = await supabase.from('bill_items').select('*').in('bill_id', billIds);
     if (itemError) throw itemError;
+    return validBills.map(b => ({ ...b, items: items?.filter(i => i.bill_id === b.id) || [] }));
+  },
+  getDeepBillsByDateRange: async (startDate: string, endDate: string): Promise<Bill[]> => {
+    if (isMock || !supabase) return Promise.resolve([]);
+    const { data: bills, error: billError } = await supabase.from('bills')
+      .select('*')
+      .gte('bill_date', startDate)
+      .lte('bill_date', endDate)
+      .order('bill_date', { ascending: true })
+      .order('created_at', { ascending: false });
+
+    if (billError) throw billError;
+    if (!bills || bills.length === 0) return [];
+    
+    const validBills = bills.filter(b => b.status !== 'PENDING' && b.status !== 'CANCELLED');
+    if (validBills.length === 0) return [];
+    
+    const billIds = validBills.map(b => b.id);
+    const { data: items, error: itemError } = await supabase.from('bill_items').select('*').in('bill_id', billIds);
+    if (itemError) throw itemError;
+    
     return validBills.map(b => ({ ...b, items: items?.filter(i => i.bill_id === b.id) || [] }));
   },
   getItemsByBillId: async (billId: string): Promise<BillItem[]> => {
@@ -979,27 +983,6 @@ export const auditService = {
             return [];
         }
         return data || [];
-    },
-
-    getLogsByDate: async (date: string): Promise<ActivityLog[]> => {
-        if (isMock || !supabase) return Promise.resolve(mockActivityLogs.filter(l => l.created_at.startsWith(date)));
-        
-        // Date range for the specific day
-        const start = `${date}T00:00:00`;
-        const end = `${date}T23:59:59`;
-
-        const { data, error } = await supabase
-            .from('activity_logs')
-            .select('*')
-            .gte('created_at', start)
-            .lte('created_at', end)
-            .order('created_at', { ascending: false });
-        
-        if (error) {
-            console.error("Audit Log Error:", error);
-            return [];
-        }
-        return data || [];
     }
 };
 
@@ -1071,4 +1054,69 @@ export const databaseService = {
         const { error } = await supabase.from(tableName).delete().eq('id', id);
         if (error) throw error;
     }
+};
+
+export const notificationService = {
+  getForUser: async (userId: string): Promise<AppNotification[]> => {
+    if (isMock || !supabase) return Promise.resolve([]);
+    const { data, error } = await supabase
+      .from('notifications')
+      .select('*')
+      .eq('recipient_id', userId)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return data || [];
+  },
+  getUnreadCount: async (userId: string): Promise<number> => {
+    if (isMock || !supabase) return Promise.resolve(0);
+    const { count, error } = await supabase
+      .from('notifications')
+      .select('*', { count: 'exact', head: true })
+      .eq('recipient_id', userId)
+      .eq('is_read', false);
+    if (error) throw error;
+    return count || 0;
+  },
+  markAsRead: async (notificationId: string): Promise<void> => {
+    if (isMock || !supabase) return Promise.resolve();
+    const { error } = await supabase
+      .from('notifications')
+      .update({ is_read: true })
+      .eq('id', notificationId);
+    if (error) throw error;
+  },
+  markAllAsRead: async (userId: string): Promise<void> => {
+    if (isMock || !supabase) return Promise.resolve();
+    const { error } = await supabase
+      .from('notifications')
+      .update({ is_read: true })
+      .eq('recipient_id', userId)
+      .eq('is_read', false);
+    if (error) throw error;
+  },
+  send: async (recipientId: string, senderId: string | undefined, message: string): Promise<AppNotification> => {
+    if (isMock || !supabase) return Promise.resolve({ id: generateUUID(), recipient_id: recipientId, sender_id: senderId, message, is_read: false, created_at: new Date().toISOString() });
+    const { data, error } = await supabase
+      .from('notifications')
+      .insert([{ recipient_id: recipientId, sender_id: senderId || null, message }])
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+  broadcast: async (senderId: string | undefined, message: string): Promise<void> => {
+    if (isMock || !supabase) return Promise.resolve();
+    const { data: users, error: usersError } = await supabase.from('app_users').select('id');
+    if (usersError) throw usersError;
+    
+    if (users && users.length > 0) {
+      const notifications = users.map(u => ({
+        recipient_id: u.id,
+        sender_id: senderId || null,
+        message: message
+      }));
+      const { error } = await supabase.from('notifications').insert(notifications);
+      if (error) throw error;
+    }
+  }
 };

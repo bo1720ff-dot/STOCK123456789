@@ -1,20 +1,53 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Greenzar Food and Beverage Billing Software
 
-# Run and deploy your AI Studio app
+This is a Next.js/React application for billing and invoicing, using Google Sheets as a database and Google Gemini AI for intelligent features.
 
-This contains everything you need to run your app locally.
+## Prerequisites
 
-View your app in AI Studio: https://ai.studio/apps/df289b32-015d-4a9e-b8b0-dcef4ed98bce
+To run this application, you need the following API keys:
 
-## Run Locally
+1.  **Google Sheets Service Account:**
+    *   Go to [Google Cloud Console](https://console.cloud.google.com/).
+    *   Create a new project.
+    *   Enable the **Google Sheets API**.
+    *   Create a **Service Account**.
+    *   Create a JSON key for the service account and download it.
+    *   Share your Google Sheet with the service account email address (found in the JSON file).
 
-**Prerequisites:**  Node.js
+2.  **Google Gemini API Key:**
+    *   Go to [Google AI Studio](https://aistudio.google.com/).
+    *   Get an API key.
 
+## Environment Variables
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+Create a `.env.local` file in the root directory (for local development) or set these variables in your deployment platform (Vercel, Netlify, etc.):
+
+```env
+# Google Sheets Configuration
+GOOGLE_SERVICE_ACCOUNT_EMAIL="your-service-account-email@project-id.iam.gserviceaccount.com"
+GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nYour Private Key Here\n-----END PRIVATE KEY-----\n"
+GOOGLE_SHEET_ID="your-google-sheet-id"
+
+# Gemini AI Configuration
+GEMINI_API_KEY="your-gemini-api-key"
+```
+
+> **Note:** When deploying to Vercel/Netlify, ensure the `GOOGLE_PRIVATE_KEY` is correctly formatted (replace literal `\n` with actual newlines if the platform requires it, or wrap the whole key in quotes).
+
+## Deployment
+
+### Vercel (Recommended)
+
+1.  Push your code to a Git repository (GitHub, GitLab, Bitbucket).
+2.  Import the project into Vercel.
+3.  In the **Environment Variables** section, add the keys listed above.
+4.  Deploy.
+
+### Netlify
+
+1.  Push your code to a Git repository.
+2.  Import the project into Netlify.
+3.  In **Site settings > Build & deploy > Environment**, add the keys.
+4.  Deploy.
+
+Once deployed, the application will use these server-side environment variables and **will not ask the user for keys**.

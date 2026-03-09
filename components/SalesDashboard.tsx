@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { User, SalesDashboardStats, Bill } from '../types';
 import { billService, orderConfigService } from '../services/supabase';
 import { RefreshCw, LogOut, Plus, Clock, Truck, CheckCircle, List, ChevronRight, TrendingUp, ScanLine, FileText, Lock } from 'lucide-react';
+import { NotificationBell } from './NotificationBell';
 
 interface SalesDashboardProps {
   user: User;
@@ -70,13 +71,14 @@ export const SalesDashboard: React.FC<SalesDashboardProps> = ({ user, onLogout, 
     <div className="flex flex-col h-full bg-[#F3F4F6] relative font-sans">
       
       {/* --- Header Section (Compact) --- */}
-      <div className="bg-[#007f5f] p-4 pb-12 rounded-b-[1.5rem] shadow-lg relative z-10">
+      <div className="bg-[#007f5f] p-4 pb-12 rounded-b-[1.5rem] shadow-lg relative z-30">
         <div className="flex justify-between items-start text-white mb-2">
           <div>
             <p className="text-emerald-100 text-[10px] font-bold uppercase tracking-widest">Welcome,</p>
             <h1 className="text-xl font-black tracking-tight leading-none">{user.name}</h1>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+            <NotificationBell currentUser={user} />
             <button 
               onClick={() => loadStats()} 
               className={`p-1.5 bg-white/10 rounded-full hover:bg-white/20 backdrop-blur-md transition border border-white/10 ${loading ? 'animate-spin' : ''}`}

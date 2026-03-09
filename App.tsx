@@ -25,7 +25,10 @@ import { BackupManager } from './components/BackupManager';
 import { DatabaseEditor } from './components/DatabaseEditor'; 
 import { DispatchTickets } from './components/DispatchTickets'; // NEW IMPORT
 import { DriverProfile } from './components/DriverProfile'; // NEW IMPORT
-import { LayoutDashboard, PlusCircle, History, Package, Users, ScrollText, FileText, Truck, MapPin, Calculator, LogOut, ShoppingBag, List, ArrowLeft, Shield, ClipboardList, ScanLine, Layers, Activity, CheckCircle, ArrowLeftRight, Bell, X, Search, Lock, Clipboard, Database, Scale, Grid, Menu, Megaphone, AlertOctagon, RefreshCw, PenTool, Ticket, User as UserIcon } from 'lucide-react';
+import { DeliveryStatement } from './components/DeliveryStatement'; // NEW IMPORT
+import { NotificationBell } from './components/NotificationBell'; // NEW IMPORT
+import { SendNotification } from './components/SendNotification'; // NEW IMPORT
+import { LayoutDashboard, PlusCircle, History, Package, Users, ScrollText, FileText, Truck, MapPin, Calculator, LogOut, ShoppingBag, List, ArrowLeft, Shield, ClipboardList, ScanLine, Layers, Activity, CheckCircle, ArrowLeftRight, Bell, X, Search, Lock, Clipboard, Database, Scale, Grid, Menu, Megaphone, AlertOctagon, RefreshCw, PenTool, Ticket, User as UserIcon, FileBarChart } from 'lucide-react';
 import { Bill, BillItem, BillType, User, UserRole, Product } from './types';
 import { billService, productService, settingsService, systemService } from './services/supabase';
 
@@ -54,7 +57,9 @@ enum Screen {
   BACKUP = 'BACKUP',
   DB_EDITOR = 'DB_EDITOR',
   DISPATCH_TICKETS = 'DISPATCH_TICKETS',
-  DRIVER_PROFILE = 'DRIVER_PROFILE', // NEW SCREEN ENUM
+  DRIVER_PROFILE = 'DRIVER_PROFILE',
+  DELIVERY_STATEMENT = 'DELIVERY_STATEMENT', // NEW SCREEN ENUM
+  SEND_NOTIFICATION = 'SEND_NOTIFICATION',
 }
 
 const App: React.FC = () => {
@@ -328,7 +333,7 @@ const App: React.FC = () => {
 
     switch (currentScreen) {
       case Screen.DASHBOARD:
-        return <Dashboard />;
+        return <Dashboard currentUser={currentUser} onNavigate={handleNavigation} />;
       case Screen.CREATE:
         return <CreateBill onBillSaved={handleBillSaved} onNotification={triggerNotification} />;
       case Screen.PARTIES:
@@ -350,11 +355,11 @@ const App: React.FC = () => {
       case Screen.TRANSACTION_LOG:
         return <TransactionLog />;
       case Screen.DISPATCH_LIST:
-        return <BillHistory onReprint={handleReprint} forcedFilter={BillType.DISPATCH} user={currentUser} />;
+        return <BillHistory onReprint={handleReprint} forcedFilter={BillType.DISPATCH} />;
       case Screen.SMALL_BILL_LIST:
-        return <BillHistory onReprint={handleReprint} forcedFilter={BillType.SMALL} user={currentUser} />;
+        return <BillHistory onReprint={handleReprint} forcedFilter={BillType.SMALL} />;
       case Screen.ALL_LOGS:
-        return <BillHistory onReprint={handleReprint} forcedFilter='ALL' user={currentUser} />;
+        return <BillHistory onReprint={handleReprint} forcedFilter='ALL' />;
       case Screen.INVOICE_LOOKUP:
         return <InvoiceLookup user={currentUser} />;
       case Screen.BACKUP:
@@ -365,6 +370,10 @@ const App: React.FC = () => {
         return <DispatchTickets onPrint={handleReprint} user={currentUser} />;
       case Screen.DRIVER_PROFILE:
         return <DriverProfile user={currentUser} onLogout={requestLogout} />;
+      case Screen.DELIVERY_STATEMENT: // NEW CASE
+        return <DeliveryStatement onBack={() => handleNavigation(Screen.DASHBOARD)} />;
+      case Screen.SEND_NOTIFICATION:
+        return <SendNotification currentUser={currentUser} />;
       case Screen.SALES_ORDER:
         const backAction = (currentUser.role === UserRole.SALESMAN || currentUser.role === UserRole.EMPLOYEE) 
             ? () => handleNavigation(Screen.MY_ORDERS) 
@@ -482,6 +491,7 @@ const App: React.FC = () => {
         items: [
             { screen: Screen.MY_ORDERS, icon: List, label: "Order List", dot: notificationDots.orders },
             { screen: Screen.DISPATCH_LIST, icon: ScrollText, label: "Dispatch List", dot: notificationDots.dispatch },
+            { screen: Screen.DELIVERY_STATEMENT, icon: FileBarChart, label: "Delivery Statement" }, // NEW MENU ITEM
             { screen: Screen.SMALL_BILL_LIST, icon: FileText, label: "Small Bill List" },
             { screen: Screen.STOCK_LOGS, icon: ClipboardList, label: "Stock Input Logs" },
             { screen: Screen.STOCK_IN_OUT, icon: ArrowLeftRight, label: "Stock In/Out Status" },
@@ -493,6 +503,7 @@ const App: React.FC = () => {
         title: "System",
         items: [
             { screen: Screen.USERS, icon: Shield, label: "User Management" },
+            { screen: Screen.SEND_NOTIFICATION, icon: Megaphone, label: "Send Notification" },
             { screen: Screen.BACKUP, icon: Database, label: "Backup & Restore" },
             { screen: Screen.DB_EDITOR, icon: PenTool, label: "Database Editor" },
         ]
@@ -565,7 +576,10 @@ const App: React.FC = () => {
       {!isMobileRole && (
         <aside className="hidden md:flex flex-col w-72 bg-slate-50 border-r border-slate-200 print:hidden shadow-lg z-20 h-full flex-shrink-0">
             <div className="p-6 border-b border-slate-200 bg-white">
-            <h1 className="text-2xl font-black tracking-tighter text-sky-600">GREENZAR<span className="text-slate-800">STOCK</span></h1>
+            <div className="flex justify-between items-start">
+              <h1 className="text-2xl font-black tracking-tighter text-sky-600">GREENZAR<span className="text-slate-800">STOCK</span></h1>
+              <NotificationBell currentUser={currentUser} />
+            </div>
             <div className="flex items-center gap-3 mt-4 bg-slate-50 p-2 rounded-xl border border-slate-100">
                 <div className="w-8 h-8 rounded-lg bg-sky-600 flex items-center justify-center text-white font-bold text-xs shadow-sm">
                     {currentUser.name.substring(0,1)}
@@ -649,14 +663,17 @@ const App: React.FC = () => {
         
         {/* Mobile Header (Only for Admin on Mobile) */}
         {!isMobileRole && (
-            <header className="md:hidden bg-sky-600 text-white p-4 shadow-md sticky top-0 z-20 flex justify-between items-center print:hidden flex-shrink-0">
+            <header className="md:hidden bg-sky-600 text-white p-4 shadow-md sticky top-0 z-50 flex justify-between items-center print:hidden flex-shrink-0">
             <div className="flex items-center gap-3">
                 <button onClick={() => setMobileMenuOpen(true)} className="p-1 rounded hover:bg-sky-700 transition">
                     <Menu size={24}/>
                 </button>
                 <h1 className="text-lg font-bold tracking-wide">GREENZAR</h1>
             </div>
-            <button onClick={requestLogout} className="bg-sky-700 p-1.5 rounded"><LogOut size={16} /></button>
+            <div className="flex items-center gap-3">
+                <NotificationBell currentUser={currentUser} />
+                <button onClick={requestLogout} className="bg-sky-700 p-1.5 rounded"><LogOut size={16} /></button>
+            </div>
             </header>
         )}
 

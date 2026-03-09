@@ -3,6 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { billService } from '../services/supabase';
 import { OrderStatus, UserRole, User } from '../types';
 import { QrCode, ArrowRight, CheckCircle, AlertTriangle, Truck, PackageCheck, Camera, X, RefreshCw, Lock } from 'lucide-react';
+import { NotificationBell } from './NotificationBell';
 
 interface StatusScannerProps {
   role: UserRole; // EMPLOYEE or SALESMAN
@@ -189,7 +190,7 @@ export const StatusScanner: React.FC<StatusScannerProps> = ({ role, user }) => {
         {/* Full Screen Camera View */}
         <div className="flex-1 relative overflow-hidden flex flex-col">
             {/* Header Overlay */}
-            <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-b from-black/80 to-transparent p-4">
+            <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-b from-black/80 to-transparent p-4 flex justify-between items-start">
                 <div className="flex items-center gap-3 text-white">
                     <div className={`p-2 rounded-full ${role === UserRole.EMPLOYEE ? 'bg-sky-600' : 'bg-teal-600'}`}>
                         {role === UserRole.EMPLOYEE ? <Truck size={20}/> : <PackageCheck size={20}/>}
@@ -198,6 +199,9 @@ export const StatusScanner: React.FC<StatusScannerProps> = ({ role, user }) => {
                         <h2 className="font-bold text-lg leading-none">{title}</h2>
                         <p className="text-xs text-white/70">{desc}</p>
                     </div>
+                </div>
+                <div className="bg-white/10 rounded-full backdrop-blur-md">
+                    <NotificationBell currentUser={user} />
                 </div>
             </div>
 

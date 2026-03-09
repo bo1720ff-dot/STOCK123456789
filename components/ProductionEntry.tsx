@@ -4,6 +4,7 @@ import { User } from '../types';
 import { productService, productionLogService, productionConfigService } from '../services/supabase';
 import { Product, ProductionLog } from '../types';
 import { Sun, Moon, Plus, Clock, RefreshCw, Layers, Check, LogOut, Lock, AlertCircle, CheckCircle, ChevronRight, Hourglass, XCircle, ShoppingBag } from 'lucide-react';
+import { NotificationBell } from './NotificationBell';
 
 interface ProductionEntryProps {
   user: User;
@@ -174,9 +175,12 @@ export const ProductionEntry: React.FC<ProductionEntryProps> = ({ user, onLogout
                  {new Date().toDateString()}
              </p>
          </div>
-         <button onClick={onLogout} className="w-8 h-8 rounded-full bg-slate-50 text-slate-400 flex items-center justify-center hover:bg-red-50 hover:text-red-500 transition border border-slate-200">
-             <LogOut size={14} />
-         </button>
+         <div className="flex items-center gap-3">
+             <NotificationBell currentUser={user} />
+             <button onClick={onLogout} className="w-8 h-8 rounded-full bg-slate-50 text-slate-400 flex items-center justify-center hover:bg-red-50 hover:text-red-500 transition border border-slate-200">
+                 <LogOut size={14} />
+             </button>
+         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 space-y-4 pb-24">

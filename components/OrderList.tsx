@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { billService, vehicleService, productService, userService } from '../services/supabase';
 import { Bill, BillItem, BillType, UserRole, Vehicle, Product, OrderStatus, User } from '../types';
-import { Printer, Package, Calendar, Eye, X, Filter, Search, Edit2, Truck, User as UserIcon, Phone, Download, Save, Plus, Clock, FileText, ChevronRight, IndianRupee, MapPin, FileDown, RefreshCw, Lock, CheckCircle, AlertTriangle, KeyRound, Ban, Trash2, Briefcase, Scale, CreditCard } from 'lucide-react';
+import { Printer, Package, Calendar, Eye, X, Filter, Search, Edit2, Truck, User as UserIcon, Phone, Download, Save, Plus, Clock, FileText, ChevronRight, IndianRupee, MapPin, FileDown, RefreshCw, Lock, CheckCircle, AlertTriangle, KeyRound, Ban, Trash2, Briefcase, Scale, CreditCard, Clipboard } from 'lucide-react';
 import { SearchableDropdown, DropdownOption } from './SearchableDropdown';
 
 interface OrderListProps {
@@ -355,71 +355,267 @@ export const OrderList: React.FC<OrderListProps> = ({ onPrintDispatch, userRole,
   };
 
   // --- PDF DOWNLOAD HANDLER ---
-  const handleDownloadPDF = async (e: React.MouseEvent, bill: Bill) => {
-    e.stopPropagation();
+  const handleDownloadPDF = async (bill: Bill, type: 'DISPATCH' | 'INVOICE') => {
     try {
       const items = await billService.getItemsByBillId(bill.id);
+      const isInvoice = type === 'INVOICE';
+      const title = isInvoice ? 'TAX INVOICE' : 'DISPATCH NOTE';
       
-      const itemsHtml = items.map(item => `
-        <div style="display: flex; margin-bottom: 2px; font-size: 9px; font-weight: bold; color: black; line-height: 1.1;">
-          <div style="flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; padding-right: 2px;">${item.product_name}</div>
-          <div style="width: 20px; text-align: right;">${item.qty}</div>
-          <div style="width: 30px; text-align: right;">-</div>
-          <div style="width: 40px; text-align: right;">-</div>
-        </div>
-      `).join('');
+      // Helper for Number to Words
+      const numToWords = (n: number) => {
+        const a = ['','One ','Two ','Three ','Four ','Five ','Six ','Seven ','Eight ','Nine ','Ten ','Eleven ','Twelve ','Thirteen ','Fourteen ','Fifteen ','Sixteen ','Seventeen ','Eighteen ','Nineteen '];
+        const b = ['', '', 'Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
+        
+        if ((n = n.toString() as any).length > 9) return 'overflow';
+        const n_array: any = ('000000000' + n).substr(-9).match(/^(\d{2})(\d{2})(\d{2})(\d{1})(\d{2})$/);
+        if (!n_array) return; 
+        let str = '';
+        str += (n_array[1] != 0) ? (a[Number(n_array[1])] || b[n_array[1][0]] + ' ' + a[n_array[1][1]]) + 'Crore ' : '';
+        str += (n_array[2] != 0) ? (a[Number(n_array[2])] || b[n_array[2][0]] + ' ' + a[n_array[2][1]]) + 'Lakh ' : '';
+        str += (n_array[3] != 0) ? (a[Number(n_array[3])] || b[n_array[3][0]] + ' ' + a[n_array[3][1]]) + 'Thousand ' : '';
+        str += (n_array[4] != 0) ? (a[Number(n_array[4])] || b[n_array[4][0]] + ' ' + a[n_array[4][1]]) + 'Hundred ' : '';
+        str += (n_array[5] != 0) ? ((str != '') ? 'and ' : '') + (a[Number(n_array[5])] || b[n_array[5][0]] + ' ' + a[n_array[5][1]]) : '';
+        return str.trim();
+      };
 
+      // Calculations
+      let totalTaxable = 0;
+      let totalCGST = 0;
+      let totalSGST = 0;
+      let grandTotal = 0;
+
+      const itemsHtml = items.map((item, index) => {
+          const qty = item.qty || 0;
+          const rate = item.rate || 0;
+          const taxable = qty * rate;
+          // Hardcoded 40% GST as per screenshot example (20% CGST + 20% SGST)
+          // Assuming Rate is Taxable Rate
+          const cgst = taxable * 0.20;
+          const sgst = taxable * 0.20;
+          const total = taxable + cgst + sgst;
+
+          if (isInvoice) {
+              totalTaxable += taxable;
+              totalCGST += cgst;
+              totalSGST += sgst;
+              grandTotal += total;
+          }
+
+          return `
+            <tr style="border-bottom: 1px solid #e5e7eb;">
+                <td style="padding: 8px; text-align: center;">${index + 1}</td>
+                <td style="padding: 8px; font-weight: 600;">${item.product_name}</td>
+                <td style="padding: 8px; text-align: center;">2202</td>
+                <td style="padding: 8px; text-align: center;">40%</td>
+                <td style="padding: 8px; text-align: center; font-weight: 600;">${qty}</td>
+                ${isInvoice ? `
+                <td style="padding: 8px; text-align: right;">${rate.toFixed(2)}</td>
+                <td style="padding: 8px; text-align: right;">${taxable.toFixed(2)}</td>
+                <td style="padding: 8px; text-align: right;">${cgst.toFixed(2)}</td>
+                <td style="padding: 8px; text-align: right;">${sgst.toFixed(2)}</td>
+                <td style="padding: 8px; text-align: right; font-weight: 600;">${total.toFixed(2)}</td>
+                ` : `
+                <td colspan="5"></td>
+                `}
+            </tr>
+          `;
+      }).join('');
+
+      // Fill empty rows to make it look like a full page invoice if needed, or just let it flow.
+      
       const dateObj = new Date(bill.bill_date);
       const formattedDate = !isNaN(dateObj.getTime()) 
-        ? `${String(dateObj.getDate()).padStart(2, '0')}-${String(dateObj.getMonth()+1).padStart(2, '0')}-${dateObj.getFullYear()}`
+        ? `${String(dateObj.getDate()).padStart(2, '0')}/${String(dateObj.getMonth()+1).padStart(2, '0')}/${dateObj.getFullYear()}`
         : bill.bill_date;
-      
-      let qrHtml = `<div style="width: 80px; height: 80px;"></div>`;
+
+      // QR Code
+      let qrHtml = '';
       if ((window as any).QRious) {
-          const qrData = bill.bill_no;
-          if(qrData) {
-             const qr = new (window as any).QRious({ value: qrData, size: 250 });
-             const qrDataUrl = qr.toDataURL();
-             qrHtml = `<div style="text-align: center;"><img src="${qrDataUrl}" width="100" height="100" style="border: 1px solid #eee;" /><div style="font-size: 6px; font-weight: bold; margin-top: 1px;">Order #${bill.bill_no}</div></div>`;
-          }
+          const qr = new (window as any).QRious({ value: bill.bill_no, size: 100 });
+          qrHtml = `<img src="${qr.toDataURL()}" style="width: 80px; height: 80px;" />`;
       }
 
       const content = `
-        <div style="font-family: Arial, sans-serif; padding: 0; color: black; width: 100%; background: white;">
-          <div style="text-align: center; margin-bottom: 2px;">
-            <h1 style="font-size: 14px; font-weight: 800; margin: 0; text-transform: uppercase; letter-spacing: -0.5px;">GREENZAR FOOD & BEVERAGE</h1>
-            <p style="font-size: 8px; margin: 1px 0 0; font-weight: bold;">Jhampa, Deganga, North 24 PGS, PIN.-743423</p>
-          </div>
-          <div style="text-align: center; font-weight: bold; font-size: 10px; text-transform: uppercase; margin: 2px 0;">ORDER DISPATCH NOTE</div>
-          <div style="display: flex; justify-content: space-between; font-size: 9px; font-weight: bold; text-transform: uppercase; margin-bottom: 2px;">
-             <div style="display: flex; gap: 2px; align-items: flex-end;"><span>No.</span><span style="font-size: 10px; line-height: 1;">${bill.bill_no}</span></div>
-             <div>${formattedDate}</div>
-          </div>
-          <div style="font-size: 9px; font-weight: bold; text-transform: uppercase; border-bottom: 1px solid black; padding-bottom: 2px; margin-bottom: 2px;">
-             <div style="display: flex; gap: 2px; width: 100%;"><span>NAME:</span><span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${bill.customer_name || 'CASH'}</span></div>
-             ${bill.salesman_name ? `<div style="display: flex; gap: 2px; width: 100%;"><span>SALES:</span><span>${bill.salesman_name}</span></div>` : ''}
-             ${bill.vehicle_number ? `<div style="display: flex; gap: 2px; width: 100%; margin-top: 2px;"><span>VEHICLE:</span><span>${bill.vehicle_number}</span></div>` : ''}
-          </div>
-          <div style="border-bottom: 1px solid black; margin-bottom: 2px; padding-bottom: 2px; font-weight: bold; font-size: 9px; display: flex; color: black;">
-            <div style="flex: 1;">Item</div><div style="width: 20px; text-align: right;">Qty</div><div style="width: 30px; text-align: right;"></div><div style="width: 40px; text-align: right;"></div>
-          </div>
-          <div style="margin-bottom: 4px;">${itemsHtml}</div>
-          <div style="border-top: 1px solid black; border-bottom: 1px solid black; padding: 3px 0; display: flex; justify-content: space-between; font-weight: bold; font-size: 10px; text-transform: uppercase; color: black;">
-            <div>Gross Qty:- ${bill.total_qty}</div><div>-</div>
-          </div>
-          <div style="display: flex; gap: 4px; margin-top: 8px; align-items: flex-start;">${qrHtml}
-             <div style="font-size: 8px; font-weight: bold; flex: 1; padding-top: 2px; line-height: 1.1; text-align: right;">For any query, contact our Helpline Number-<br/><span style="font-size: 10px;">9476156298</span></div>
-          </div>
+        <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 40px; max-width: 800px; margin: 0 auto; color: #1f2937; line-height: 1.5;">
+            
+            <!-- Header -->
+            <div style="display: flex; justify-content: space-between; margin-bottom: 30px;">
+                <div>
+                    <h1 style="font-size: 24px; font-weight: 900; text-transform: uppercase; margin: 0 0 5px 0; color: #111827;">GREENZAR FOOD AND BEVERAGE</h1>
+                    <div style="font-size: 12px; color: #4b5563;">
+                        Jhampa, Deganga, North 24 Parganas<br>
+                        Pin: 743423, West Bengal<br>
+                        GSTIN: <strong>19AASFG3766F1ZW</strong><br>
+                        Ph: 9874682388 / 9609085462<br>
+                        Email: greenzarfood@gmail.com<br>
+                        Web: greenzarfood.in
+                    </div>
+                </div>
+                <div style="text-align: right;">
+                    ${qrHtml}
+                    <div style="background: #000; color: #fff; display: inline-block; padding: 4px 12px; font-weight: 700; font-size: 12px; margin-top: 5px; text-transform: uppercase;">${title}</div>
+                    <table style="margin-top: 10px; font-size: 12px; margin-left: auto;">
+                        <tr><td style="text-align: right; padding-right: 10px; color: #6b7280; font-weight: 600;">INVOICE #</td><td style="font-weight: 700;">${bill.bill_no}</td></tr>
+                        <tr><td style="text-align: right; padding-right: 10px; color: #6b7280; font-weight: 600;">DATE</td><td style="font-weight: 700;">${formattedDate}</td></tr>
+                        <tr><td style="text-align: right; padding-right: 10px; color: #6b7280; font-weight: 600;">VEHICLE</td><td style="font-weight: 700;">${bill.vehicle_number || '-'}</td></tr>
+                        <tr><td style="text-align: right; padding-right: 10px; color: #6b7280; font-weight: 600;">TOTAL QTY</td><td style="font-weight: 700;">${bill.total_qty}</td></tr>
+                        <tr><td style="text-align: right; padding-right: 10px; color: #6b7280; font-weight: 600;">PARTY CODE</td><td style="font-weight: 700;">${bill.customer_name?.substring(0,4).toUpperCase() || 'CASH'}</td></tr>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Bill To / Ship To -->
+            <div style="display: flex; gap: 40px; margin-bottom: 30px; border-top: 1px solid #e5e7eb; padding-top: 20px;">
+                <div style="flex: 1;">
+                    <div style="font-size: 10px; font-weight: 700; color: #6b7280; text-transform: uppercase; margin-bottom: 5px;">BILL TO</div>
+                    <h3 style="margin: 0 0 5px 0; font-size: 16px; font-weight: 800; text-transform: uppercase;">${bill.customer_name || 'CASH CUSTOMER'}</h3>
+                    <div style="font-size: 12px; color: #374151;">
+                        PH : ${bill.phone_number || '-'}<br>
+                        ${bill.customer_address || ''}
+                    </div>
+                    <div style="margin-top: 10px; font-size: 11px;">
+                        <span style="color: #6b7280; font-weight: 600; width: 60px; display: inline-block;">GSTIN</span> <span style="font-weight: 700;">${bill.gst_number || '-'}</span><br>
+                        <span style="color: #6b7280; font-weight: 600; width: 60px; display: inline-block;">Pan</span> <span style="font-weight: 700;">${bill.pan_number || '-'}</span><br>
+                        <span style="color: #6b7280; font-weight: 600; width: 60px; display: inline-block;">Aadhar</span> <span style="font-weight: 700;">${bill.aadhar_number || '-'}</span>
+                    </div>
+                </div>
+                <div style="flex: 1;">
+                    <div style="font-size: 10px; font-weight: 700; color: #6b7280; text-transform: uppercase; margin-bottom: 5px;">SHIP TO</div>
+                    <h3 style="margin: 0 0 5px 0; font-size: 16px; font-weight: 800; text-transform: uppercase;">${bill.customer_name || 'CASH CUSTOMER'}</h3>
+                    <div style="font-size: 12px; color: #374151;">
+                        PH : ${bill.phone_number || '-'}<br>
+                        ${bill.customer_address || ''}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Items Table -->
+            <table style="width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 30px;">
+                <thead>
+                    <tr style="background-color: #f3f4f6; color: #4b5563; text-transform: uppercase;">
+                        <th style="padding: 10px 8px; text-align: center; font-weight: 700; width: 30px;">#</th>
+                        <th style="padding: 10px 8px; text-align: left; font-weight: 700;">Item Description</th>
+                        <th style="padding: 10px 8px; text-align: center; font-weight: 700; width: 50px;">HSN</th>
+                        <th style="padding: 10px 8px; text-align: center; font-weight: 700; width: 40px;">GST</th>
+                        <th style="padding: 10px 8px; text-align: center; font-weight: 700; width: 40px;">Qty</th>
+                        ${isInvoice ? `
+                        <th style="padding: 10px 8px; text-align: right; font-weight: 700;">Rate</th>
+                        <th style="padding: 10px 8px; text-align: right; font-weight: 700;">Taxable</th>
+                        <th style="padding: 10px 8px; text-align: right; font-weight: 700;">CGST</th>
+                        <th style="padding: 10px 8px; text-align: right; font-weight: 700;">SGST</th>
+                        <th style="padding: 10px 8px; text-align: right; font-weight: 700;">Total</th>
+                        ` : `
+                        <th colspan="5"></th>
+                        `}
+                    </tr>
+                </thead>
+                <tbody>
+                    ${itemsHtml}
+                </tbody>
+            </table>
+
+            <!-- Footer Section -->
+            <div style="display: flex; gap: 30px;">
+                <!-- Bank Details -->
+                <div style="flex: 1; border: 1px solid #e5e7eb; padding: 15px; border-radius: 4px; background-color: #f9fafb;">
+                    <div style="font-size: 11px; font-weight: 700; color: #6b7280; text-transform: uppercase; margin-bottom: 10px;">Bank Details</div>
+                    <table style="width: 100%; font-size: 11px;">
+                        <tr><td style="color: #4b5563; padding: 2px 0;">Account Name</td><td style="font-weight: 700; text-align: right;">Greenzar Food And Beverage</td></tr>
+                        <tr><td style="color: #4b5563; padding: 2px 0;">Bank Name</td><td style="font-weight: 700; text-align: right;">UCO BANK</td></tr>
+                        <tr><td style="color: #4b5563; padding: 2px 0;">Branch</td><td style="font-weight: 700; text-align: right;">BADU BR.</td></tr>
+                        <tr><td style="color: #4b5563; padding: 2px 0;">A/C No</td><td style="font-weight: 700; text-align: right;">06710510011188</td></tr>
+                        <tr><td style="color: #4b5563; padding: 2px 0;">IFSC</td><td style="font-weight: 700; text-align: right;">UCBA0000671</td></tr>
+                    </table>
+                </div>
+
+                <!-- Totals -->
+                <div style="flex: 1;">
+                    ${isInvoice ? `
+                    <table style="width: 100%; font-size: 12px;">
+                        <tr>
+                            <td style="padding: 5px 0; color: #4b5563;">Taxable Amount</td>
+                            <td style="padding: 5px 0; text-align: right; font-weight: 600;">₹${totalTaxable.toFixed(2)}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 5px 0; color: #4b5563;">Add: CGST</td>
+                            <td style="padding: 5px 0; text-align: right; font-weight: 600;">₹${totalCGST.toFixed(2)}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 5px 0; color: #4b5563;">Add: SGST</td>
+                            <td style="padding: 5px 0; text-align: right; font-weight: 600;">₹${totalSGST.toFixed(2)}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 5px 0; color: #4b5563;">Round Off / Adj.</td>
+                            <td style="padding: 5px 0; text-align: right; font-weight: 600;">0.00</td>
+                        </tr>
+                        <tr style="border-top: 2px solid #e5e7eb; border-bottom: 2px solid #e5e7eb;">
+                            <td style="padding: 10px 0; font-weight: 800; font-size: 14px; text-transform: uppercase;">Grand Total</td>
+                            <td style="padding: 10px 0; text-align: right; font-weight: 900; font-size: 18px;">₹${grandTotal.toFixed(2)}</td>
+                        </tr>
+                    </table>
+                    ` : `
+                    <div style="text-align: center; padding: 20px; color: #9ca3af; font-weight: 600; border: 2px dashed #e5e7eb; border-radius: 8px;">
+                        DISPATCH NOTE<br><span style="font-size: 10px; font-weight: 400;">No Financials</span>
+                    </div>
+                    `}
+                </div>
+            </div>
+
+            <!-- Amount in Words -->
+            ${isInvoice ? `
+            <div style="margin-top: 20px; text-align: right;">
+                <div style="font-size: 10px; font-weight: 700; color: #6b7280; text-transform: uppercase;">Amount in Words</div>
+                <div style="font-size: 12px; font-weight: 600; font-style: italic; font-family: 'Times New Roman', serif; margin-top: 5px;">
+                    Rupees ${numToWords(Math.round(grandTotal))} Only
+                </div>
+            </div>
+            ` : ''}
+
+            <!-- Terms & Signatory -->
+            <div style="margin-top: 40px; display: flex; justify-content: space-between; align-items: flex-end;">
+                <div style="font-size: 10px; color: #6b7280; max-width: 50%;">
+                    <strong>Terms:</strong><br>
+                    1. Goods once sold will not be taken back.<br>
+                    2. Interest @ 18% p.a. charged if payment delayed.<br>
+                    3. Complete payment within 7 days of the billing date.
+                </div>
+                <div style="text-align: right;">
+                    <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; margin-bottom: 40px;">AUTHORIZED SIGNATORY</div>
+                    <div style="font-size: 9px; color: #9ca3af;">For GREENZAR FOOD AND BEVERAGE</div>
+                </div>
+            </div>
+
+            <div style="margin-top: 30px; text-align: center; font-size: 8px; color: #d1d5db;">
+                This Invoice is Generated Using GREENZAR F & B Official Billing Software.
+            </div>
+
         </div>
       `;
 
       const element = document.createElement('div');
       element.innerHTML = content;
-      const opt = { margin: 0, filename: `${bill.bill_no}_Dispatch.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 3 }, jsPDF: { unit: 'mm', format: [72, 297], orientation: 'portrait' } };
+      const filename = `${bill.bill_no}_${isInvoice ? 'Invoice' : 'Dispatch'}.pdf`;
+      
+      // Use A4 format for this professional invoice
+      const opt = { 
+          margin: 0, 
+          filename: filename, 
+          image: { type: 'jpeg', quality: 0.98 }, 
+          html2canvas: { scale: 2, useCORS: true }, 
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } 
+      };
       
       if ((window as any).html2pdf) (window as any).html2pdf().set(opt).from(element).save();
       else alert("PDF Library not loaded.");
     } catch (e) { alert("Failed to generate PDF"); }
+  };
+
+  // --- INVOICE MODAL STATE ---
+  const [invoiceTarget, setInvoiceTarget] = useState<Bill | null>(null);
+
+  const handleInvoiceClick = (e: React.MouseEvent, bill: Bill) => {
+      e.stopPropagation();
+      setInvoiceTarget(bill);
   };
 
   // Open "Process/Edit Order" Modal
@@ -710,8 +906,85 @@ export const OrderList: React.FC<OrderListProps> = ({ onPrintDispatch, userRole,
       return remark.split('| Edited by:')[0].trim();
   };
 
+  // Copy Order Details to Clipboard
+  const handleCopyOrderDetails = (bill: Bill, items: BillItem[]) => {
+      // User requested "product rate qty"
+      const lines = items.map(item => `${item.product_name} .....rate ${item.rate || 0} ...qty ${item.qty}`);
+      const text = lines.join('\n');
+
+      navigator.clipboard.writeText(text).then(() => {
+          if (onNotification) onNotification("Product list copied!", "success");
+          else alert("Copied to clipboard!");
+      }).catch(err => {
+          console.error('Failed to copy: ', err);
+          alert("Failed to copy text.");
+      });
+  };
+
   return (
     <div className="flex flex-col h-full bg-[#F3F4F6]">
+      {/* --- INVOICE TYPE SELECTION MODAL --- */}
+      {invoiceTarget && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200" onClick={() => setInvoiceTarget(null)}>
+              <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+                  <div className="text-center mb-6">
+                      <div className="w-12 h-12 bg-sky-50 rounded-full flex items-center justify-center mx-auto mb-3 text-sky-600">
+                          <FileDown size={24} />
+                      </div>
+                      <h3 className="text-lg font-black text-slate-800">Select Invoice Type</h3>
+                      <p className="text-xs text-slate-400 font-bold uppercase mt-1">Order #{invoiceTarget.bill_no}</p>
+                  </div>
+                  
+                  <div className="space-y-3">
+                      <button 
+                          onClick={() => {
+                              handleDownloadPDF(invoiceTarget, 'DISPATCH');
+                              setInvoiceTarget(null);
+                          }}
+                          className="w-full flex items-center justify-between p-4 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl transition group"
+                      >
+                          <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-slate-500 group-hover:text-sky-600 group-hover:border-sky-200 transition">
+                                  <Truck size={16} />
+                              </div>
+                              <div className="text-left">
+                                  <div className="text-sm font-bold text-slate-700 group-hover:text-sky-700">Dispatch Note</div>
+                                  <div className="text-[10px] font-bold text-slate-400 uppercase">Qty Only • For Driver</div>
+                              </div>
+                          </div>
+                          <ChevronRight size={16} className="text-slate-300 group-hover:text-sky-400" />
+                      </button>
+
+                      <button 
+                          onClick={() => {
+                              handleDownloadPDF(invoiceTarget, 'INVOICE');
+                              setInvoiceTarget(null);
+                          }}
+                          className="w-full flex items-center justify-between p-4 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl transition group"
+                      >
+                          <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-slate-500 group-hover:text-emerald-600 group-hover:border-emerald-200 transition">
+                                  <IndianRupee size={16} />
+                              </div>
+                              <div className="text-left">
+                                  <div className="text-sm font-bold text-slate-700 group-hover:text-emerald-700">Tax Invoice</div>
+                                  <div className="text-[10px] font-bold text-slate-400 uppercase">With Rates • For Customer</div>
+                              </div>
+                          </div>
+                          <ChevronRight size={16} className="text-slate-300 group-hover:text-emerald-400" />
+                      </button>
+                  </div>
+
+                  <button 
+                      onClick={() => setInvoiceTarget(null)}
+                      className="mt-6 w-full py-3 text-xs font-bold text-slate-400 hover:text-slate-600 uppercase tracking-wider"
+                  >
+                      Cancel
+                  </button>
+              </div>
+          </div>
+      )}
+
       {/* Header */}
       <div className="p-4 bg-white shadow-sm z-10 sticky top-0 md:relative border-b border-gray-100">
         <div className="flex justify-between items-center mb-4">
@@ -953,10 +1226,10 @@ export const OrderList: React.FC<OrderListProps> = ({ onPrintDispatch, userRole,
                                            <Printer size={14} /> Print
                                        </button>
                                        <button 
-                                         onClick={(e) => handleDownloadPDF(e, order)}
-                                         className="flex items-center justify-center gap-1.5 bg-white border border-gray-200 text-gray-700 hover:text-red-600 hover:border-red-200 h-9 rounded-lg text-xs font-bold transition shadow-sm"
+                                         onClick={(e) => handleInvoiceClick(e, order)}
+                                         className="flex items-center justify-center gap-1.5 bg-white border border-gray-200 text-gray-700 hover:text-sky-600 hover:border-sky-200 h-9 rounded-lg text-xs font-bold transition shadow-sm"
                                        >
-                                           <FileDown size={14} /> PDF
+                                           <FileDown size={14} /> Invoice
                                        </button>
                                    </div>
                                )}
@@ -1488,6 +1761,12 @@ export const OrderList: React.FC<OrderListProps> = ({ onPrintDispatch, userRole,
                   </div>
 
                   <div className="p-5 bg-white border-t border-gray-100 flex gap-3">
+                      <button 
+                          onClick={() => handleCopyOrderDetails(viewOrder, viewItems)}
+                          className="w-full py-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 border border-indigo-200 font-bold rounded-xl transition flex items-center justify-center gap-2"
+                      >
+                          <Clipboard size={18} /> Copy Details
+                      </button>
                       <button onClick={() => setViewOrder(null)} className="w-full py-3 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-xl transition">
                           Close
                       </button>

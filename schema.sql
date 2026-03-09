@@ -210,6 +210,15 @@ CREATE TABLE IF NOT EXISTS activity_logs (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS notifications (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    recipient_id UUID REFERENCES app_users(id) ON DELETE CASCADE,
+    sender_id UUID REFERENCES app_users(id) ON DELETE SET NULL,
+    message TEXT NOT NULL,
+    is_read BOOLEAN DEFAULT false,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
 -- ============================================================================
 -- 10. AUTOMATION TRIGGERS (FIXED)
 -- ============================================================================
@@ -484,3 +493,16 @@ INSERT INTO products (product_name, unit, rate, weight) VALUES
 ('Mango Juice', 'case', 150, 1.2),
 ('Litchi Drink', 'case', 130, 1)
 ON CONFLICT DO NOTHING;
+
+-- ============================================================================
+-- 14. NOTIFICATIONS TABLE
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS notifications (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    recipient_id UUID REFERENCES app_users(id) ON DELETE CASCADE,
+    sender_id UUID REFERENCES app_users(id) ON DELETE SET NULL,
+    message TEXT NOT NULL,
+    is_read BOOLEAN DEFAULT false,
+    created_at TIMESTAMPTZ DEFAULT now()
+);

@@ -1,12 +1,18 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import { billService, productionConfigService, orderConfigService, stockService, productService, systemService, auditService } from '../services/supabase';
-import { DailySummary, Bill, BillType, OrderStatus, Product, StockEntry, BillItem } from '../types';
-import { RefreshCw, Package, FileText, Calendar, Lock, Unlock, CheckCircle, XCircle, ShoppingBag, Truck, Activity, User, Grid, Monitor, BarChart3, ArrowRight, Layers, Sun, Moon, Clock, X, MapPin, IndianRupee, Megaphone, Send, Power, Bell } from 'lucide-react';
+import { DailySummary, Bill, BillType, OrderStatus, Product, StockEntry, BillItem, User as AppUser } from '../types';
+import { RefreshCw, Package, FileText, Calendar, Lock, Unlock, CheckCircle, XCircle, ShoppingBag, Truck, Activity, User, Grid, Monitor, BarChart3, ArrowRight, Layers, Sun, Moon, Clock, X, MapPin, IndianRupee, Megaphone, Send, Power, Bell, Menu, PlusCircle, Ticket, Database, PenTool } from 'lucide-react';
 import { ActivityFeed } from './ActivityFeed';
+import { notificationService } from '../services/supabase';
 
-export const Dashboard: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'LIVE' | 'STOCK' | 'ACTIVITY'>('OVERVIEW');
+interface DashboardProps {
+  currentUser?: AppUser;
+  onNavigate?: (screen: any) => void;
+}
+
+export const Dashboard: React.FC<DashboardProps> = ({ currentUser, onNavigate }) => {
+  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'LIVE' | 'STOCK' | 'ACTIVITY' | 'MENU'>('OVERVIEW');
   const [summary, setSummary] = useState<DailySummary | null>(null);
   const [recentBills, setRecentBills] = useState<Bill[]>([]);
   const [activeOrders, setActiveOrders] = useState<Bill[]>([]);
@@ -306,6 +312,14 @@ export const Dashboard: React.FC = () => {
                     </span>
                 )}
             </button>
+            <button 
+                onClick={() => setActiveTab('MENU')}
+                className={`flex-1 md:flex-none px-6 py-2.5 rounded-lg text-xs font-black flex items-center justify-center gap-2 transition-all whitespace-nowrap ${
+                    activeTab === 'MENU' ? 'bg-purple-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'
+                }`}
+            >
+                <Menu size={16} /> MENU
+            </button>
         </div>
       </div>
 
@@ -575,8 +589,155 @@ export const Dashboard: React.FC = () => {
 
       {/* --- TAB CONTENT: ACTIVITY FEED (New) --- */}
       {activeTab === 'ACTIVITY' && (
-          <div className="h-full flex flex-col animate-in fade-in slide-in-from-right-4 duration-300">
-              <ActivityFeed />
+          <div className="h-full flex flex-col animate-in fade-in slide-in-from-right-4 duration-300 space-y-4">
+              {currentUser && currentUser.role === 'ADMIN' && (
+                  <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                      <h3 className="text-sm font-black text-slate-800 mb-2 flex items-center gap-2">
+                          <Megaphone size={16} className="text-orange-500" /> Send Broadcast Notification
+                      </h3>
+                      <div className="flex gap-2">
+                          <input 
+                              type="text" 
+                              id="broadcastMessage"
+                              placeholder="Type a message to send to all users..."
+                              className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500"
+                          />
+                          <button 
+                              onClick={async () => {
+                                  const input = document.getElementById('broadcastMessage') as HTMLInputElement;
+                                  if (!input || !input.value.trim()) return;
+                                  try {
+                                      await notificationService.broadcast(currentUser.id, input.value.trim());
+                                      alert("Notification sent to all users!");
+                                      input.value = '';
+                                  } catch (e) {
+                                      console.error(e);
+                                      alert("Failed to send notification.");
+                                  }
+                              }}
+                              className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors"
+                          >
+                              <Send size={14} /> Send
+                          </button>
+                      </div>
+                  </div>
+              )}
+              <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                  <ActivityFeed />
+              </div>
+          </div>
+      )}
+
+      {/* --- TAB CONTENT: MENU --- */}
+      {activeTab === 'MENU' && (
+          <div className="animate-in fade-in slide-in-from-right-4 duration-300 space-y-6">
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                  <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-4">Operations</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      <button onClick={() => onNavigate && onNavigate('CREATE')} className="flex flex-col items-center justify-center p-4 bg-sky-50 text-sky-700 rounded-xl hover:bg-sky-100 transition border border-sky-100">
+                          <PlusCircle size={24} className="mb-2" />
+                          <span className="text-xs font-bold">Create Bill</span>
+                      </button>
+                      <button onClick={() => onNavigate && onNavigate('SALES_ORDER')} className="flex flex-col items-center justify-center p-4 bg-sky-50 text-sky-700 rounded-xl hover:bg-sky-100 transition border border-sky-100">
+                          <ShoppingBag size={24} className="mb-2" />
+                          <span className="text-xs font-bold">New Order</span>
+                      </button>
+                      <button onClick={() => onNavigate && onNavigate('STOCK_INVENTORY')} className="flex flex-col items-center justify-center p-4 bg-sky-50 text-sky-700 rounded-xl hover:bg-sky-100 transition border border-sky-100">
+                          <Grid size={24} className="mb-2" />
+                          <span className="text-xs font-bold">Stock Inventory</span>
+                      </button>
+                      <button onClick={() => onNavigate && onNavigate('DISPATCH_TICKETS')} className="flex flex-col items-center justify-center p-4 bg-sky-50 text-sky-700 rounded-xl hover:bg-sky-100 transition border border-sky-100">
+                          <Ticket size={24} className="mb-2" />
+                          <span className="text-xs font-bold">Ticket Queue</span>
+                      </button>
+                  </div>
+              </div>
+
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                  <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-4">Masters</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      <button onClick={() => onNavigate && onNavigate('WEIGHT_LIST')} className="flex flex-col items-center justify-center p-4 bg-emerald-50 text-emerald-700 rounded-xl hover:bg-emerald-100 transition border border-emerald-100">
+                          <Layers size={24} className="mb-2" />
+                          <span className="text-xs font-bold">Weight List</span>
+                      </button>
+                      <button onClick={() => onNavigate && onNavigate('PARTIES')} className="flex flex-col items-center justify-center p-4 bg-emerald-50 text-emerald-700 rounded-xl hover:bg-emerald-100 transition border border-emerald-100">
+                          <User size={24} className="mb-2" />
+                          <span className="text-xs font-bold">Party Names</span>
+                      </button>
+                      <button onClick={() => onNavigate && onNavigate('ADDRESSES')} className="flex flex-col items-center justify-center p-4 bg-emerald-50 text-emerald-700 rounded-xl hover:bg-emerald-100 transition border border-emerald-100">
+                          <MapPin size={24} className="mb-2" />
+                          <span className="text-xs font-bold">Addresses</span>
+                      </button>
+                      <button onClick={() => onNavigate && onNavigate('VEHICLES')} className="flex flex-col items-center justify-center p-4 bg-emerald-50 text-emerald-700 rounded-xl hover:bg-emerald-100 transition border border-emerald-100">
+                          <Truck size={24} className="mb-2" />
+                          <span className="text-xs font-bold">Vehicles</span>
+                      </button>
+                      <button onClick={() => onNavigate && onNavigate('PRODUCTS')} className="flex flex-col items-center justify-center p-4 bg-emerald-50 text-emerald-700 rounded-xl hover:bg-emerald-100 transition border border-emerald-100">
+                          <Package size={24} className="mb-2" />
+                          <span className="text-xs font-bold">Products</span>
+                      </button>
+                  </div>
+              </div>
+
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                  <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-4">Reports</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      <button onClick={() => onNavigate && onNavigate('MY_ORDERS')} className="flex flex-col items-center justify-center p-4 bg-orange-50 text-orange-700 rounded-xl hover:bg-orange-100 transition border border-orange-100">
+                          <FileText size={24} className="mb-2" />
+                          <span className="text-xs font-bold">Order List</span>
+                      </button>
+                      <button onClick={() => onNavigate && onNavigate('DISPATCH_LIST')} className="flex flex-col items-center justify-center p-4 bg-orange-50 text-orange-700 rounded-xl hover:bg-orange-100 transition border border-orange-100">
+                          <FileText size={24} className="mb-2" />
+                          <span className="text-xs font-bold">Dispatch List</span>
+                      </button>
+                      <button onClick={() => onNavigate && onNavigate('DELIVERY_STATEMENT')} className="flex flex-col items-center justify-center p-4 bg-orange-50 text-orange-700 rounded-xl hover:bg-orange-100 transition border border-orange-100">
+                          <BarChart3 size={24} className="mb-2" />
+                          <span className="text-xs font-bold">Delivery Statement</span>
+                      </button>
+                      <button onClick={() => onNavigate && onNavigate('SMALL_BILL_LIST')} className="flex flex-col items-center justify-center p-4 bg-orange-50 text-orange-700 rounded-xl hover:bg-orange-100 transition border border-orange-100">
+                          <FileText size={24} className="mb-2" />
+                          <span className="text-xs font-bold">Small Bill List</span>
+                      </button>
+                      <button onClick={() => onNavigate && onNavigate('STOCK_LOGS')} className="flex flex-col items-center justify-center p-4 bg-orange-50 text-orange-700 rounded-xl hover:bg-orange-100 transition border border-orange-100">
+                          <FileText size={24} className="mb-2" />
+                          <span className="text-xs font-bold">Stock Input Logs</span>
+                      </button>
+                      <button onClick={() => onNavigate && onNavigate('STOCK_IN_OUT')} className="flex flex-col items-center justify-center p-4 bg-orange-50 text-orange-700 rounded-xl hover:bg-orange-100 transition border border-orange-100">
+                          <ArrowRight size={24} className="mb-2" />
+                          <span className="text-xs font-bold">Stock In/Out</span>
+                      </button>
+                      <button onClick={() => onNavigate && onNavigate('TRANSACTION_LOG')} className="flex flex-col items-center justify-center p-4 bg-orange-50 text-orange-700 rounded-xl hover:bg-orange-100 transition border border-orange-100">
+                          <Activity size={24} className="mb-2" />
+                          <span className="text-xs font-bold">Daily Transactions</span>
+                      </button>
+                      <button onClick={() => onNavigate && onNavigate('ALL_LOGS')} className="flex flex-col items-center justify-center p-4 bg-orange-50 text-orange-700 rounded-xl hover:bg-orange-100 transition border border-orange-100">
+                          <Clock size={24} className="mb-2" />
+                          <span className="text-xs font-bold">All Print Logs</span>
+                      </button>
+                  </div>
+              </div>
+
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                  <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-4">System</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      <button onClick={() => onNavigate && onNavigate('USERS')} className="flex flex-col items-center justify-center p-4 bg-purple-50 text-purple-700 rounded-xl hover:bg-purple-100 transition border border-purple-100">
+                          <User size={24} className="mb-2" />
+                          <span className="text-xs font-bold">User Management</span>
+                      </button>
+                      <button onClick={() => onNavigate && onNavigate('SEND_NOTIFICATION')} className="flex flex-col items-center justify-center p-4 bg-purple-50 text-purple-700 rounded-xl hover:bg-purple-100 transition border border-purple-100">
+                          <Megaphone size={24} className="mb-2" />
+                          <span className="text-xs font-bold">Send Notification</span>
+                      </button>
+                      <button onClick={() => onNavigate && onNavigate('BACKUP')} className="flex flex-col items-center justify-center p-4 bg-purple-50 text-purple-700 rounded-xl hover:bg-purple-100 transition border border-purple-100">
+                          <Database size={24} className="mb-2" />
+                          <span className="text-xs font-bold">Backup & Restore</span>
+                      </button>
+                      <button onClick={() => onNavigate && onNavigate('DB_EDITOR')} className="flex flex-col items-center justify-center p-4 bg-purple-50 text-purple-700 rounded-xl hover:bg-purple-100 transition border border-purple-100">
+                          <PenTool size={24} className="mb-2" />
+                          <span className="text-xs font-bold">Database Editor</span>
+                      </button>
+                  </div>
+              </div>
           </div>
       )}
 

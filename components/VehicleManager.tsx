@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { vehicleService, userService } from '../services/supabase';
-import { Vehicle, User } from '../types';
+import { Vehicle } from '../types';
 import { Plus, Truck, Save, X, Trash2, User as UserIcon, Phone } from 'lucide-react';
 import { CsvImporter } from './CsvImporter';
 
@@ -72,14 +72,14 @@ export const VehicleManager: React.FC = () => {
 
   const handleImport = async (data: any[]) => {
       await vehicleService.importBulk(data);
-      loadData();
+      loadVehicles();
   };
 
   const handleDelete = async (id: string) => {
       if(!window.confirm("Are you sure you want to delete this vehicle?")) return;
       try {
           await vehicleService.delete(id);
-          loadData();
+          loadVehicles();
       } catch(e) {
           alert("Failed to delete");
       }

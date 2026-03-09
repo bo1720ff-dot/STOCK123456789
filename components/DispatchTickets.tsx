@@ -120,15 +120,6 @@ export const DispatchTickets: React.FC<DispatchTicketsProps> = ({ onPrint, user 
       }
   };
 
-  const getTypeName = (type: BillType) => {
-      switch(type) {
-          case BillType.SMALL: return 'Small Bill';
-          case BillType.DISPATCH: return 'Dispatch';
-          case BillType.ORDER: return 'Sales Order';
-          default: return type;
-      }
-  };
-
   const toggleExpand = (id: string) => {
       setExpandedCard(expandedCard === id ? null : id);
   };
@@ -631,12 +622,6 @@ export const DispatchTickets: React.FC<DispatchTicketsProps> = ({ onPrint, user 
                                   </div>
                                   <div>
                                       <span className="text-base font-black text-slate-800 font-mono tracking-tight block leading-none">{bill.bill_no}</span>
-                                      <span className={`text-[9px] font-black uppercase tracking-wide block mt-0.5 ${
-                                          bill.bill_type === BillType.ORDER ? 'text-blue-600' : 
-                                          bill.bill_type === BillType.DISPATCH ? 'text-orange-600' : 'text-emerald-600'
-                                      }`}>
-                                          {getTypeName(bill.bill_type)}
-                                      </span>
                                       <span className="text-[9px] font-bold text-slate-400 flex items-center gap-1 mt-0.5">
                                           <Clock size={9}/> {time}
                                       </span>

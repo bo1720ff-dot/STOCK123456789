@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { BillType, Product, BillItem, OrderStatus, User } from '../types';
-import { productService, billService } from '../services/supabase';
-import { Send, User as UserIcon, MapPin, Phone, FileText, ChevronDown, Package, Plus, Trash2, ArrowLeft, ArrowRight, Calendar, ShoppingCart, CheckCircle, IndianRupee, Scale, X, Search, Minus, AlertTriangle } from 'lucide-react';
+import { BillType, Product, BillItem, OrderStatus, User, Vehicle, UserRole } from '../types';
+import { productService, billService, vehicleService, userService } from '../services/supabase';
+import { Send, User as UserIcon, MapPin, Phone, FileText, ChevronDown, Package, Plus, Trash2, ArrowLeft, ArrowRight, Calendar, ShoppingCart, CheckCircle, IndianRupee, Scale, X, Search, Minus, AlertTriangle, Truck, Users, Sparkles } from 'lucide-react';
 import { SearchableDropdown, DropdownOption } from './SearchableDropdown';
+import { GoogleGenAI, Type } from "@google/genai";
 
 interface SalesOrderFormProps {
   user: User;
@@ -16,10 +17,19 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({ user, onOrderSav
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [loading, setLoading] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]); 
+  const [salesmen, setSalesmen] = useState<User[]>([]); // NEW: Salesmen List
+
+  // AI Smart Paste State
+  const [showSmartPaste, setShowSmartPaste] = useState(false);
+  const [pasteText, setPasteText] = useState('');
+  const [isProcessingPaste, setIsProcessingPaste] = useState(false);
 
   // STEP 1: Customer Data
   const [selectedPartyName, setSelectedPartyName] = useState('');
   const [selectedAddress, setSelectedAddress] = useState('');
+  const [selectedVehicle, setSelectedVehicle] = useState(''); 
+  const [selectedSalesman, setSelectedSalesman] = useState<string>(''); // NEW: Selected Salesman
   const [phoneNumber, setPhoneNumber] = useState('');
   const [deliveryDate, setDeliveryDate] = useState(''); 
   const [gstNumber, setGstNumber] = useState('');
@@ -28,14 +38,10 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({ user, onOrderSav
   const [customNote, setCustomNote] = useState(''); 
   const [showExtras, setShowExtras] = useState(false);
 
-  // STEP 2: Item Entry (Redesigned)
+  // STEP 2: Item Entry
   const [cartItems, setCartItems] = useState<BillItem[]>([]);
-  const [productSearch, setProductSearch] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
-  const [showProductDropdown, setShowProductDropdown] = useState(false);
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [addQty, setAddQty] = useState('');
-  const [addRate, setAddRate] = useState('');
 
   // CONFIRMATION MODAL STATE
   const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -57,7 +63,19 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({ user, onOrderSav
   // --- INIT ---
   useEffect(() => {
     const init = async () => {
-      const prods = await productService.getAll();
+      const [prods, vehs, users] = await Promise.all([
+          productService.getAll(),
+          vehicleService.getAll(),
+          userService.getAll()
+      ]);
+      
+      setVehicles(vehs); 
+      
+      // Filter for salesmen if user is admin
+      if (user.role === UserRole.ADMIN) {
+          const salesUsers = users.filter(u => u.role === UserRole.SALESMAN);
+          setSalesmen(salesUsers);
+      }
       
       // CUSTOM SORTING LOGIC (Updated LITCHI to ORAL E+)
       const priority = [
@@ -104,7 +122,7 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({ user, onOrderSav
       setDeliveryDate(tomorrow.toISOString().split('T')[0]);
     };
     init();
-  }, []);
+  }, [user.role]);
 
   // --- CART HELPERS ---
   const getCartItem = (productName: string) => {
@@ -115,70 +133,81 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({ user, onOrderSav
       setCartItems(prev => prev.filter(i => i.product_name !== productName));
   };
 
-  const handleAddItem = () => {
-      if (!selectedProduct) return;
+  const updateCartQty = (product: Product, newQtyStr: string) => {
+      const newQty = parseFloat(newQtyStr);
+      const qty = isNaN(newQty) ? 0 : newQty;
       
-      const qty = parseFloat(addQty);
-      const rate = parseFloat(addRate);
-
-      if (isNaN(qty) || qty <= 0) {
-          alert("Please enter a valid quantity");
-          return;
-      }
-      if (isNaN(rate) || rate < 0) {
-          alert("Please enter a valid rate");
-          return;
-      }
-
-      const existingIdx = cartItems.findIndex(i => i.product_name === selectedProduct.product_name);
-      const newCart = [...cartItems];
+      const existingIdx = cartItems.findIndex(i => i.product_name === product.product_name);
 
       if (existingIdx !== -1) {
           // Update existing
+          const newCart = [...cartItems];
+          const currentRate = newCart[existingIdx].rate || product.rate;
+          newCart[existingIdx] = { 
+              ...newCart[existingIdx], 
+              qty: qty, 
+              line_total: qty * currentRate 
+          };
+          setCartItems(newCart);
+      } else if (qty > 0) {
+          // Add new (only if > 0)
+          setCartItems([...cartItems, {
+              product_name: product.product_name,
+              qty: qty,
+              rate: product.rate,
+              line_total: qty * product.rate
+          }]);
+      }
+  };
+
+  // NEW: Manual Rate Update
+  const updateCartRate = (product: Product, newRateStr: string) => {
+      const newRate = parseFloat(newRateStr) || 0;
+      const existingIdx = cartItems.findIndex(i => i.product_name === product.product_name);
+
+      if (existingIdx !== -1) {
+          const newCart = [...cartItems];
+          const currentQty = newCart[existingIdx].qty;
           newCart[existingIdx] = {
               ...newCart[existingIdx],
-              qty: qty,
-              rate: rate,
-              line_total: qty * rate
+              rate: newRate,
+              line_total: currentQty * newRate
           };
-      } else {
-          // Add new
-          newCart.push({
-              product_name: selectedProduct.product_name,
-              qty: qty,
-              rate: rate,
-              line_total: qty * rate
-          });
-      }
-      setCartItems(newCart);
-
-      // Reset Form
-      setSelectedProduct(null);
-      setProductSearch('');
-      setAddQty('');
-      setAddRate('');
-      setShowProductDropdown(false);
-  };
-
-  const handleProductSelect = (p: Product) => {
-      setSelectedProduct(p);
-      setProductSearch(p.product_name);
-      setShowProductDropdown(false);
-      
-      // Pre-fill if exists
-      const existing = getCartItem(p.product_name);
-      if (existing) {
-          setAddQty(existing.qty.toString());
-          setAddRate(existing.rate.toString());
-      } else {
-          setAddQty('');
-          setAddRate(p.rate.toString());
+          setCartItems(newCart);
       }
   };
 
-  // Filter Logic for Dropdown
+  const incrementQty = (product: Product) => {
+      const item = getCartItem(product.product_name);
+      if (item) {
+          updateCartQty(product, (item.qty + 1).toString());
+      } else {
+          // Initial add
+          updateCartQty(product, "1");
+      }
+  };
+
+  const decrementQty = (product: Product) => {
+      const item = getCartItem(product.product_name);
+      if (item) {
+          if (item.qty <= 1) {
+              removeFromCart(product.product_name);
+          } else {
+              updateCartQty(product, (item.qty - 1).toString());
+          }
+      }
+  };
+
+  const handleQtyBlur = (product: Product) => {
+      const item = getCartItem(product.product_name);
+      if (item && item.qty <= 0) {
+          removeFromCart(product.product_name);
+      }
+  };
+
+  // Filter Logic
   const filteredProducts = products.filter(p => {
-      const matchSearch = p.product_name.toLowerCase().includes(productSearch.toLowerCase());
+      const matchSearch = p.product_name.toLowerCase().includes(searchQuery.toLowerCase());
       const matchCat = !categoryFilter || p.product_name.toUpperCase().includes(categoryFilter);
       return matchSearch && matchCat;
   });
@@ -190,6 +219,7 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({ user, onOrderSav
               alert("Please enter Customer Name.");
               return;
           }
+          // Admin can now proceed without selecting a salesman (defaults to self)
           setStep(2);
       } else if (step === 2) {
           if (cartItems.length === 0) {
@@ -212,6 +242,151 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({ user, onOrderSav
       if (step > 1) setStep((s) => (s - 1) as any);
   };
 
+  // AI Smart Paste Handler
+  const handleSmartPaste = async () => {
+    if (!pasteText.trim()) return;
+    setIsProcessingPaste(true);
+    try {
+        // Use environment variable first, fallback to the user's provided key
+        const apiKey = process.env.GEMINI_API_KEY || 'AIzaSyA_L5VyVPXxXg_KgjI8BjyrTD9FM2ZLEzE';
+
+        if (!apiKey) {
+            alert("Gemini API Key is not configured.");
+            setIsProcessingPaste(false);
+            return;
+        }
+
+        const ai = new GoogleGenAI({ apiKey });
+        
+        // Create a simplified list of products for context
+        const productContext = products.map(p => p.product_name).join(', ');
+
+        const response = await ai.models.generateContent({
+            model: "gemini-3-flash-preview",
+            contents: `
+                You are an order processing assistant.
+                Extract customer details (name, address, phone) and product items (name, quantity, rate) from the user's text.
+                
+                Available Product List (use these names if possible):
+                ${productContext}
+                
+                User Text:
+                "${pasteText}"
+                
+                Instructions:
+                1. Identify customer name, address, and phone number if present.
+                2. Identify product names, quantities, and rates.
+                3. Map extracted product names to the "Available Product List" where possible.
+                4. If a rate is not mentioned, return 0.
+                5. Return a JSON object with "customer" and "items" keys.
+            `,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        customer: {
+                            type: Type.OBJECT,
+                            properties: {
+                                name: { type: Type.STRING },
+                                address: { type: Type.STRING },
+                                phone: { type: Type.STRING }
+                            }
+                        },
+                        items: {
+                            type: Type.ARRAY,
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    product_name: { type: Type.STRING },
+                                    qty: { type: Type.NUMBER },
+                                    rate: { type: Type.NUMBER }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        const text = response.text;
+        if (!text) throw new Error("No response from AI");
+        
+        const data = JSON.parse(text);
+        const extractedItems = data.items || [];
+        const extractedCustomer = data.customer || {};
+
+        let matchCount = 0;
+
+        // 1. Fill Customer Details
+        if (extractedCustomer.name) setSelectedPartyName(extractedCustomer.name);
+        if (extractedCustomer.address) setSelectedAddress(extractedCustomer.address);
+        if (extractedCustomer.phone) setPhoneNumber(extractedCustomer.phone);
+
+        // 2. Fill Cart Items
+        if (Array.isArray(extractedItems)) {
+            const newItems: BillItem[] = [];
+
+            extractedItems.forEach((item: any) => {
+                // 1. Try Exact Match
+                let product = products.find(p => p.product_name.toLowerCase() === item.product_name.toLowerCase());
+                
+                // 2. Try Fuzzy Match (Includes)
+                if (!product) {
+                     product = products.find(p => p.product_name.toLowerCase().includes(item.product_name.toLowerCase()) || item.product_name.toLowerCase().includes(p.product_name.toLowerCase()));
+                }
+
+                if (product) {
+                    const quantity = Number(item.qty) || 1;
+                    const rate = Number(item.rate) || product.rate;
+                    
+                    newItems.push({
+                        product_name: product.product_name,
+                        qty: quantity,
+                        rate: rate,
+                        line_total: quantity * rate
+                    });
+                    matchCount++;
+                }
+            });
+
+            if (newItems.length > 0) {
+                // Merge with existing cart
+                setCartItems(prev => {
+                    const updated = [...prev];
+                    newItems.forEach(newItem => {
+                        const idx = updated.findIndex(i => i.product_name === newItem.product_name);
+                        if (idx !== -1) {
+                            updated[idx] = { 
+                                ...updated[idx], 
+                                qty: updated[idx].qty + newItem.qty,
+                                line_total: (updated[idx].qty + newItem.qty) * (newItem.rate || updated[idx].rate || 0)
+                            };
+                        } else {
+                            updated.push(newItem);
+                        }
+                    });
+                    return updated;
+                });
+            }
+        }
+        
+        setShowSmartPaste(false);
+        setPasteText('');
+        
+        if (onNotification) {
+            const customerMsg = extractedCustomer.name ? 'Customer details & ' : '';
+            onNotification(`AI matched ${customerMsg}${matchCount} items!`, 'success');
+        }
+
+    } catch (e) {
+        console.error("Smart Paste Error:", e);
+        alert("Failed to process text. Please try again.");
+    } finally {
+        setIsProcessingPaste(false);
+    }
+  };
+
   // Trigger Confirmation Modal
   const handleConfirmOrder = () => {
       setShowConfirmModal(true);
@@ -229,6 +404,13 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({ user, onOrderSav
         if (customNote.trim()) finalRemarkParts.push(customNote.trim());
         const finalRemark = finalRemarkParts.join(' | ');
 
+        const selectedVehicleObj = vehicles.find(v => v.vehicle_number === selectedVehicle);
+
+        // Determine Salesman Name: Selected one for Admin, or Current User for Salesman
+        const finalSalesmanName = user.role === UserRole.ADMIN 
+            ? (salesmen.find(s => s.id === selectedSalesman)?.name || user.name)
+            : user.name;
+
         const orderData = {
             bill_no: nextBillNo,
             bill_type: BillType.ORDER,
@@ -238,8 +420,11 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({ user, onOrderSav
             bill_date: new Date().toISOString().split('T')[0],
             customer_name: selectedPartyName,
             customer_address: selectedAddress,
+            vehicle_number: selectedVehicle, // SAVE VEHICLE
+            driver_name: selectedVehicleObj?.driver_name, // SAVE DRIVER
+            driver_contact: selectedVehicleObj?.driver_contact, // SAVE CONTACT
             phone_number: phoneNumber,
-            salesman_name: user.name,
+            salesman_name: finalSalesmanName, // USE SELECTED SALESMAN
             gst_number: gstNumber,
             pan_number: panNumber,    
             aadhar_number: aadharNumber, 
@@ -280,6 +465,20 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({ user, onOrderSav
       return `${kg.toFixed(2)} KG`;
   }
 
+  const vehicleOptions: DropdownOption[] = vehicles.map(v => ({
+    id: v.id,
+    title: v.vehicle_number,
+    tag: 'VEH',
+    originalData: v
+  }));
+
+  const salesmanOptions: DropdownOption[] = salesmen.map(s => ({
+    id: s.id || '',
+    title: s.name,
+    tag: 'SALES',
+    originalData: s
+  }));
+
   return (
     <div className="flex flex-col h-full bg-slate-50 font-sans relative overflow-hidden">
       
@@ -310,11 +509,36 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({ user, onOrderSav
          {step === 1 && (
              <div className="p-4 space-y-4 animate-in slide-in-from-right-8 duration-300">
                  <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
-                    <h3 className="text-xs font-black text-slate-800 uppercase mb-4 flex items-center gap-2">
-                        <UserIcon size={16} className="text-sky-500"/> Customer Details
-                    </h3>
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-xs font-black text-slate-800 uppercase flex items-center gap-2">
+                            <UserIcon size={16} className="text-sky-500"/> Customer Details
+                        </h3>
+                        <button 
+                            onClick={() => setShowSmartPaste(true)}
+                            className="bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg text-[10px] font-bold flex items-center gap-1 hover:bg-indigo-100 transition border border-indigo-100"
+                        >
+                            <Sparkles size={12} /> AI PASTE
+                        </button>
+                    </div>
                     
                     <div className="space-y-3">
+                        {/* ADMIN ONLY: Salesman Selection */}
+                        {user.role === UserRole.ADMIN && (
+                            <div className="mb-4 bg-sky-50 p-3 rounded-xl border border-sky-100">
+                                <label className="text-[10px] font-bold text-sky-700 uppercase ml-1 mb-1 block flex items-center gap-1">
+                                    <Users size={10} /> Select Salesman (Admin Override)
+                                </label>
+                                <SearchableDropdown 
+                                    label=""
+                                    placeholder="Select Salesman"
+                                    options={salesmanOptions}
+                                    value={salesmen.find(s => s.id === selectedSalesman)?.name || ''}
+                                    onChange={() => {}} // Controlled by onSelect
+                                    onSelect={(opt) => setSelectedSalesman(opt.id)}
+                                />
+                            </div>
+                        )}
+
                         <div>
                             <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Party Name *</label>
                             <input 
@@ -391,167 +615,155 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({ user, onOrderSav
              </div>
          )}
 
-         {/* --- STEP 2: PRODUCTS (REDESIGNED) --- */}
+         {/* --- STEP 2: PRODUCTS (COMPACT LIST FOR KEYBOARD) --- */}
          {step === 2 && (
-             <div className="flex flex-col h-full animate-in slide-in-from-right-8 duration-300 bg-slate-50">
+             <div className="flex flex-col h-full animate-in slide-in-from-right-8 duration-300">
                  
-                 <div className="p-4 space-y-4">
-                     {/* ADD ITEMS CARD */}
-                     <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
-                         <h3 className="text-xs font-black text-slate-800 uppercase mb-4 flex items-center gap-2">
-                             <Package size={16} className="text-sky-500"/> Add Items
-                         </h3>
-
-                         <div className="space-y-3">
-                             {/* Category Chips */}
-                             <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide -mx-1 px-1">
-                                {QUICK_FILTERS.map(f => (
-                                    <button
-                                        key={f.label}
-                                        onClick={() => setCategoryFilter(f.val)}
-                                        className={`flex-shrink-0 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wide transition-all active:scale-95 border ${
-                                            categoryFilter === f.val
-                                            ? 'bg-sky-600 text-white border-sky-600 shadow-md shadow-sky-200' 
-                                            : 'bg-white text-slate-500 border-slate-200 hover:border-sky-200 hover:text-sky-600'
-                                        }`}
-                                    >
-                                        {f.label}
-                                    </button>
-                                ))}
-                             </div>
-
-                             {/* Product Search */}
-                             <div className="relative">
-                                 <Search className="absolute left-3 top-3.5 text-gray-400" size={16} />
-                                 <input 
-                                     type="text" 
-                                     placeholder="Find Product..." 
-                                     value={productSearch}
-                                     onChange={(e) => {
-                                         setProductSearch(e.target.value);
-                                         setShowProductDropdown(true);
-                                         if (!e.target.value) setSelectedProduct(null);
-                                     }}
-                                     onFocus={() => setShowProductDropdown(true)}
-                                     className="w-full pl-10 p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition"
-                                 />
-                                 {selectedProduct && (
-                                     <button onClick={() => {
-                                         setSelectedProduct(null);
-                                         setProductSearch('');
-                                         setAddQty('');
-                                         setAddRate('');
-                                     }} className="absolute right-3 top-3.5 text-gray-400 hover:text-red-500">
-                                         <X size={16} />
-                                     </button>
-                                 )}
-                                 
-                                 {/* Dropdown */}
-                                 {showProductDropdown && (
-                                     <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-xl shadow-xl border border-slate-100 max-h-60 overflow-y-auto z-50">
-                                         {filteredProducts.length === 0 ? (
-                                             <div className="p-3 text-center text-xs text-gray-400 font-bold">No products found</div>
-                                         ) : (
-                                             filteredProducts.map(p => (
-                                                 <button
-                                                     key={p.id}
-                                                     onClick={() => handleProductSelect(p)}
-                                                     className="w-full text-left p-3 hover:bg-sky-50 flex items-center justify-between border-b border-gray-50 last:border-0 transition"
-                                                 >
-                                                     <div>
-                                                         <div className="font-bold text-slate-800 text-sm">{p.product_name}</div>
-                                                         <div className="text-[10px] text-slate-400 font-bold uppercase">{p.unit} • ₹{p.rate}</div>
-                                                     </div>
-                                                     {getCartItem(p.product_name) && (
-                                                         <span className="text-[9px] bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full font-bold">ADDED</span>
-                                                     )}
-                                                 </button>
-                                             ))
-                                         )}
-                                     </div>
-                                 )}
-                             </div>
-
-                             {/* Qty & Rate Row */}
-                             <div className="flex gap-3">
-                                 <div className="flex-1">
-                                     <input 
-                                         type="number" 
-                                         inputMode="numeric"
-                                         placeholder="Qty" 
-                                         value={addQty}
-                                         onChange={e => setAddQty(e.target.value)}
-                                         className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-lg font-black text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition text-center placeholder-gray-300"
-                                     />
-                                 </div>
-                                 <div className="w-24">
-                                     <input 
-                                         type="number" 
-                                         inputMode="numeric"
-                                         placeholder="Rate" 
-                                         value={addRate}
-                                         onChange={e => setAddRate(e.target.value)}
-                                         className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-lg font-black text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition text-center placeholder-gray-300"
-                                     />
-                                 </div>
-                                 <button 
-                                     onClick={handleAddItem}
-                                     disabled={!selectedProduct || !addQty}
-                                     className={`w-14 rounded-xl flex items-center justify-center shadow-lg transition active:scale-95 ${
-                                         selectedProduct && addQty 
-                                         ? 'bg-sky-600 text-white shadow-sky-200 hover:bg-sky-700' 
-                                         : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                                     }`}
-                                 >
-                                     <Plus size={24} strokeWidth={3} />
-                                 </button>
-                             </div>
-                         </div>
+                 {/* 1. Search Bar (Sticky) */}
+                 <div className="bg-white px-3 py-2 sticky top-0 z-10 border-b border-gray-100 shadow-sm">
+                     <div className="flex gap-2 relative">
+                        <div className="relative flex-1">
+                            <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
+                            <input 
+                                type="text" 
+                                placeholder="Search Items..." 
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="w-full pl-9 pr-8 py-2 bg-gray-100 border-none rounded-lg text-sm font-bold text-gray-800 outline-none focus:ring-2 focus:ring-sky-200 focus:bg-white transition"
+                            />
+                            {searchQuery && (
+                                <button onClick={() => setSearchQuery('')} className="absolute right-3 top-2.5 text-gray-400">
+                                    <X size={14} />
+                                </button>
+                            )}
+                        </div>
+                        <button 
+                            onClick={() => setShowSmartPaste(true)}
+                            className="bg-indigo-600 text-white px-3 rounded-lg flex items-center justify-center shadow-sm active:scale-95 transition hover:bg-indigo-700"
+                            title="AI Smart Paste"
+                        >
+                            <Sparkles size={18} />
+                        </button>
                      </div>
-
-                     {/* CART LIST */}
-                     <div className="pb-20">
-                         {cartItems.length === 0 ? (
-                             <div className="flex flex-col items-center justify-center py-12 opacity-50">
-                                 <ShoppingCart size={48} className="text-gray-300 mb-2" />
-                                 <p className="text-sm font-bold text-gray-400">Cart is empty</p>
-                             </div>
-                         ) : (
-                             <div className="space-y-2">
-                                 {cartItems.map((item, idx) => (
-                                     <div key={idx} className="bg-white p-3 rounded-xl shadow-sm border border-slate-100 flex items-center justify-between animate-in slide-in-from-bottom-2 duration-300">
-                                         <div className="flex items-center gap-3">
-                                             <div className="w-10 h-10 rounded-lg bg-sky-50 flex items-center justify-center text-sky-600 font-bold text-xs border border-sky-100">
-                                                 {idx + 1}
-                                             </div>
-                                             <div>
-                                                 <div className="font-bold text-slate-800 text-sm">{item.product_name}</div>
-                                                 <div className="text-xs text-slate-500 font-medium">
-                                                     {item.qty} x ₹{item.rate}
-                                                 </div>
-                                             </div>
-                                         </div>
-                                         <div className="flex items-center gap-3">
-                                             <div className="font-black text-slate-800 text-sm">₹{(item.line_total || 0).toFixed(0)}</div>
-                                             <button 
-                                                 onClick={() => removeFromCart(item.product_name)}
-                                                 className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 transition"
-                                             >
-                                                 <Trash2 size={16} />
-                                             </button>
-                                         </div>
-                                     </div>
-                                 ))}
-                                 
-                                 {/* Total Summary */}
-                                 <div className="mt-4 bg-slate-900 text-white p-4 rounded-xl flex justify-between items-center shadow-lg">
-                                     <span className="font-bold text-xs uppercase tracking-wider text-slate-400">Total Amount</span>
-                                     <span className="font-black text-xl">₹{totalAmount.toFixed(0)}</span>
-                                 </div>
-                             </div>
-                         )}
+                     
+                     {/* 2. Category Chips */}
+                     <div className="flex gap-2 overflow-x-auto pb-1 mt-2 scrollbar-hide -mx-1 px-1">
+                        {QUICK_FILTERS.map(f => (
+                            <button
+                                key={f.label}
+                                onClick={() => setCategoryFilter(f.val)}
+                                className={`flex-shrink-0 border px-3 py-1 rounded-full text-[10px] font-black uppercase shadow-sm active:scale-95 transition ${
+                                    categoryFilter === f.val
+                                    ? 'bg-slate-800 text-white border-slate-800' 
+                                    : 'bg-white text-slate-500 border-slate-200'
+                                }`}
+                            >
+                                {f.label}
+                            </button>
+                        ))}
                      </div>
                  </div>
+
+                 {/* 3. Product List (Compact Row Layout) */}
+                 <div className="bg-white pb-32 min-h-full">
+                     {filteredProducts.length === 0 ? (
+                         <div className="text-center py-20 text-gray-400 font-bold text-sm">
+                             No products found.
+                         </div>
+                     ) : (
+                         filteredProducts.map(p => {
+                             const cartItem = getCartItem(p.product_name);
+                             // If item exists in cart, use its qty. If 0, show empty string for clean input.
+                             const inCart = !!cartItem;
+                             const qty = cartItem ? (cartItem.qty > 0 ? cartItem.qty : '') : ''; 
+                             const currentRate = cartItem && cartItem.rate !== undefined ? cartItem.rate : p.rate;
+
+                             return (
+                                 <div key={p.id} className={`flex items-center justify-between p-3 border-b border-gray-100 transition-colors ${inCart ? 'bg-sky-50/40' : ''}`}>
+                                     
+                                     {/* Left: Info */}
+                                     <div className="flex-1 min-w-0 pr-3">
+                                         <div className="font-bold text-slate-800 text-sm leading-tight truncate">{p.product_name}</div>
+                                         <div className="text-[10px] text-slate-500 font-medium mt-0.5">
+                                             <span className="uppercase">{p.unit}</span> {p.weight ? `• ${p.weight}kg` : ''} 
+                                             {!inCart && <span className="ml-1 text-slate-400">• ₹{p.rate}</span>}
+                                         </div>
+                                     </div>
+
+                                     {/* Right: Controls */}
+                                     <div className="flex items-center gap-2">
+                                         {inCart ? (
+                                             <>
+                                                 {/* Rate Input */}
+                                                 <div className="flex flex-col items-end">
+                                                     <label className="text-[8px] font-bold text-slate-400 uppercase leading-none mb-0.5">Rate</label>
+                                                     <input 
+                                                        type="number"
+                                                        inputMode="numeric"
+                                                        value={currentRate}
+                                                        onChange={(e) => updateCartRate(p, e.target.value)}
+                                                        className="w-14 h-8 p-1 text-center border border-slate-300 rounded text-xs font-bold text-slate-800 outline-none focus:border-sky-500 bg-white shadow-sm"
+                                                     />
+                                                 </div>
+
+                                                 {/* Qty Input */}
+                                                 <div className="flex flex-col items-center">
+                                                     <label className="text-[8px] font-bold text-slate-400 uppercase leading-none mb-0.5">Qty</label>
+                                                     <div className="flex items-center shadow-sm rounded-lg overflow-hidden border border-slate-300">
+                                                         <button 
+                                                            onClick={() => decrementQty(p)}
+                                                            className="w-8 h-8 flex items-center justify-center bg-gray-50 text-slate-500 active:bg-gray-200 border-r border-slate-200"
+                                                         >
+                                                             <Minus size={12} strokeWidth={3}/>
+                                                         </button>
+                                                         <input 
+                                                            type="number"
+                                                            inputMode="numeric"
+                                                            value={qty}
+                                                            onChange={(e) => updateCartQty(p, e.target.value)}
+                                                            onBlur={() => handleQtyBlur(p)}
+                                                            className="w-12 h-8 text-center text-sm font-black text-slate-900 outline-none focus:bg-sky-50 bg-white"
+                                                            placeholder="0"
+                                                         />
+                                                         <button 
+                                                            onClick={() => incrementQty(p)}
+                                                            className="w-8 h-8 flex items-center justify-center bg-gray-50 text-slate-500 active:bg-gray-200 border-l border-slate-200"
+                                                         >
+                                                             <Plus size={12} strokeWidth={3}/>
+                                                         </button>
+                                                     </div>
+                                                 </div>
+                                             </>
+                                         ) : (
+                                             <button 
+                                                onClick={() => incrementQty(p)}
+                                                className="bg-white border border-sky-600 text-sky-600 px-5 py-1.5 rounded-lg text-xs font-bold shadow-sm active:scale-95 active:bg-sky-50 transition"
+                                             >
+                                                 ADD
+                                             </button>
+                                         )}
+                                     </div>
+                                 </div>
+                             );
+                         })
+                     )}
+                 </div>
+                 
+                 {/* CART SUMMARY BAR (Small & Compact) */}
+                 {cartItems.length > 0 && (
+                     <div className="fixed bottom-0 left-0 right-0 bg-slate-900 text-white p-3 z-30 flex items-center justify-between border-t border-slate-800 shadow-2xl safe-area-bottom">
+                         <div className="flex flex-col pl-2">
+                             <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">{cartItems.length} ITEMS ADDED</span>
+                             <span className="text-base font-black leading-none">₹{totalAmount.toFixed(0)}</span>
+                         </div>
+                         <button 
+                            onClick={handleNext}
+                            className="bg-sky-600 text-white px-5 py-2 rounded-lg font-bold text-xs flex items-center gap-2 hover:bg-sky-500 transition shadow-lg shadow-sky-900/50"
+                         >
+                             VIEW CART <ArrowRight size={14} />
+                         </button>
+                     </div>
+                 )}
              </div>
          )}
 
@@ -646,7 +858,58 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({ user, onOrderSav
           </div>
       )}
 
+      {/* --- SMART PASTE MODAL --- */}
+      {showSmartPaste && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200">
+              <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md">
+                  <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-lg font-black text-slate-800 flex items-center gap-2">
+                          <Sparkles className="text-indigo-500" size={20} /> AI Smart Paste
+                      </h3>
+                      <button onClick={() => setShowSmartPaste(false)} className="text-slate-400 hover:text-slate-600">
+                          <X size={20} />
+                      </button>
+                  </div>
+                  
+                  <p className="text-xs text-slate-500 mb-3">
+                      Paste your order text below (e.g. "5 Water, 10 Mango 200ml"). AI will detect items automatically.
+                  </p>
+
+                  <textarea
+                      value={pasteText}
+                      onChange={(e) => setPasteText(e.target.value)}
+                      className="w-full h-32 p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition resize-none"
+                      placeholder="Paste order details here..."
+                      autoFocus
+                  />
+
+                  <div className="mt-4 flex gap-3">
+                      <button 
+                          onClick={() => setShowSmartPaste(false)}
+                          className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition"
+                      >
+                          Cancel
+                      </button>
+                      <button 
+                          onClick={handleSmartPaste}
+                          disabled={isProcessingPaste || !pasteText.trim()}
+                          className="flex-1 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition flex justify-center items-center gap-2 disabled:opacity-50"
+                      >
+                          {isProcessingPaste ? (
+                              <>Processing...</>
+                          ) : (
+                              <>
+                                  <Sparkles size={18} /> Detect & Add
+                              </>
+                          )}
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
       {/* --- BOTTOM ACTIONS --- */}
+      {step !== 2 && (
       <div className="absolute bottom-0 left-0 right-0 p-4 bg-white border-t border-slate-100 z-30">
           <div className="flex gap-3">
               {step > 1 && (
@@ -670,6 +933,7 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({ user, onOrderSav
               </button>
           </div>
       </div>
+      )}
 
     </div>
   );
